@@ -800,7 +800,7 @@ class MainActivity : Activity() {
                 val title = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE)) ?: "File"
                 val st = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
                 val total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                val soFar = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_SO_FAR))
+                val soFar = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
                 val sub = when (st) {
                     DownloadManager.STATUS_SUCCESSFUL -> Formatter.formatShortFileSize(this, total)
                     DownloadManager.STATUS_FAILED -> "Gagal"
