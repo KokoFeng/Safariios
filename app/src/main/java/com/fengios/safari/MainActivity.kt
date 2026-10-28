@@ -69,7 +69,12 @@ class MainActivity : Activity() {
     private var tabQuery = ""
     private var tabSearchOn = false
     private var tabSearchHolder: FrameLayout? = null
-    private var touchScale = 0.8f
+    private var touchScale = 1.0f
+    private val touchMatrix = Matrix()
+    private var barH = 52
+    private var barLift = 0
+    private var blocked = false
+    private var popupCard: View? = null
     private var scrollAcc = 0
     private var downX = 0f
     private var downY = 0f
@@ -126,12 +131,15 @@ class MainActivity : Activity() {
     // ------------------------------------------------------------ lifecycle
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!DevInfo.valid()) { tamperExit(); return }
         prefs = getSharedPreferences("safari", MODE_PRIVATE)
         store = Store(this)
         style = prefs.getInt("style", 27)
         organizeAuto = prefs.getBoolean("organize", true)
         GlassView.blur = prefs.getBoolean("blur", false)
-        touchScale = prefs.getInt("touch", 80) / 100f
+        touchScale = prefs.getInt("touch", 100) / 100f
+        barH = prefs.getInt("bar_h", 52)
+        barLift = prefs.getInt("bar_lift", 0)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
@@ -162,13 +170,18 @@ class MainActivity : Activity() {
     }
 
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); handleIntent(intent) }
-    private fun handleIntent(i: Intent?) { i?.data?.let { newTab(it.toString()) } }
+    private fun handleIntent(i: Intent?) { if (blocked) return; i?.data?.let { newTab(it.toString()) } }
 
-    override fun onConfigurationChanged(c: Configuration) { super.onConfigurationChanged(c); buildUi() }
+    override fun onConfigurationChanged(c: Configuration) { super.onConfigurationChanged(c); if (!blocked) buildUi() }
 
-    override fun onResume() { super.onResume(); tab.web.onResume(); h.post(ticker); pollDownloads() }
+    override fun onResume() {
+        super.onResume()
+        if (blocked) return
+        tab.web.onResume(); if (GlassView.blur) h.post(ticker); pollDownloads()
+    }
     override fun onPause() {
         super.onPause()
+        if (blocked) return
         h.removeCallbacks(ticker)
         tab.web.onPause()
         prefs.edit().putString("tabs", tabs.joinToString("\n") { if (it.start) "start:" else (it.web.url ?: it.url) }).putInt("cur", cur).apply()
@@ -209,7 +222,7 @@ class MainActivity : Activity() {
                 lastScrollY = sy; lastRefresh = now
                 GlassView.all.toList().forEach { it.refresh() }
             }
-            h.postDelayed(this, if (GlassView.blur) 100L else 500L)
+            if (GlassView.blur) h.postDelayed(this, 100L)
         }
     }
 
@@ -241,7 +254,7 @@ class MainActivity : Activity() {
         webHolder.requestLayout()
         val b = bars ?: return
         val pad = if (imeInset > navInset) imeInset else navInset
-        if (style == 27) b.padView.setPadding(dp(14), 0, dp(14), pad + dp(8)) else b.padView.setPadding(0, dp(8), 0, pad)
+        if (style == 27) b.padView.setPadding(dp(14), 0, dp(14), pad + dp(8) + dp(barLift)) else b.padView.setPadding(0, dp(8), 0, pad)
         sugScroll?.setPadding(dp(14), topInset + dp(12), dp(14), pad + dp(80))
     }
 
@@ -347,9 +360,9 @@ class MainActivity : Activity() {
         pill.background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(fillCol) }
         roundClip(pill, dp(12))
         fillPill(b, pill)
-        col.addView(pill, LinearLayout.LayoutParams(MP, dp(42)).apply { setMargins(dp(10), 0, dp(10), 0) })
+        col.addView(pill, LinearLayout.LayoutParams(MP, dp(barH - 10)).apply { setMargins(dp(10), 0, dp(10), 0) })
         val row = toolbarRow(b)
-        col.addView(row, LinearLayout.LayoutParams(MP, dp(46)))
+        col.addView(row, LinearLayout.LayoutParams(MP, dp(barH - 6)))
         glass.addView(col, FrameLayout.LayoutParams(MP, WC))
         val line = View(this).apply { setBackgroundColor(if (dark) 0x33FFFFFF else 0x22000000) }
         glass.addView(line, FrameLayout.LayoutParams(MP, 1))
@@ -384,21 +397,21 @@ class MainActivity : Activity() {
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val backIc = IconView(this, "back", fg, 0.5f)
         b.btn["back"] = backIc
-        val back = glassCircle(backIc, dp(52))
+        val back = glassCircle(backIc, dp(barH))
         back.setOnClickListener {
             if (collapsed) setCollapsed(false)
             else if (tab.web.canGoBack()) tab.web.goBack()
             else if (!tab.start && tab.fromStart) { tab.start = true; syncStart(); updateUi() }
         }
-        val addr = GlassView(this, webHolder, dp(26).toFloat(), 1, dark, bg)
+        val addr = GlassView(this, webHolder, dp(barH / 2).toFloat(), 1, dark, bg)
         val pill = FrameLayout(this)
         fillPill(b, pill)
         addr.addView(pill, FrameLayout.LayoutParams(MP, MP))
-        val more = glassCircle(IconView(this, "more", fg, 0.6f), dp(52))
+        val more = glassCircle(IconView(this, "more", fg, 0.6f), dp(barH))
         more.setOnClickListener { if (collapsed) setCollapsed(false) else showMenu() }
-        row.addView(back, LinearLayout.LayoutParams(dp(52), dp(52)))
-        row.addView(addr, LinearLayout.LayoutParams(0, dp(52), 1f).apply { setMargins(dp(8), 0, dp(8), 0) })
-        row.addView(more, LinearLayout.LayoutParams(dp(52), dp(52)))
+        row.addView(back, LinearLayout.LayoutParams(dp(barH), dp(barH)))
+        row.addView(addr, LinearLayout.LayoutParams(0, dp(barH), 1f).apply { setMargins(dp(8), 0, dp(8), 0) })
+        row.addView(more, LinearLayout.LayoutParams(dp(barH), dp(barH)))
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         col.addView(row, LinearLayout.LayoutParams(MP, WC))
         b.container.addView(col, FrameLayout.LayoutParams(MP, WC, Gravity.BOTTOM))
@@ -418,15 +431,15 @@ class MainActivity : Activity() {
             if (style == 27 && !c) OvershootInterpolator(1.1f) else DecelerateInterpolator(2f)
         val d = if (style == 27) 380L else 300L
         if (style == 18) {
-            b.toolMover?.animate()?.translationY(if (c) dp(46).toFloat() else 0f)?.setDuration(d)?.setInterpolator(ip)?.start()
+            b.toolMover?.animate()?.translationY(if (c) dp(barH - 6).toFloat() else 0f)?.setDuration(d)?.setInterpolator(ip)?.withLayer()?.start()
             b.addrMover.animate().scaleX(if (c) .86f else 1f).scaleY(if (c) .9f else 1f)
-                .setDuration(d).setInterpolator(ip).start()
+                .setDuration(d).setInterpolator(ip).withLayer().start()
         } else {
             b.addrMover.animate().scaleX(if (c) .7f else 1f).scaleY(if (c) .8f else 1f)
-                .translationY(if (c) dp(6).toFloat() else 0f).setDuration(d).setInterpolator(ip).start()
+                .translationY(if (c) dp(6).toFloat() else 0f).setDuration(d).setInterpolator(ip).withLayer().start()
             for (v in b.sides) {
                 v.animate().alpha(if (c) 0f else 1f).scaleX(if (c) .5f else 1f).scaleY(if (c) .5f else 1f)
-                    .setDuration(d).setInterpolator(ip).start()
+                    .setDuration(d).setInterpolator(ip).withLayer().start()
             }
         }
         b.aa.animate().alpha(if (c) 0f else 1f).setDuration(200).start()
@@ -476,6 +489,76 @@ class MainActivity : Activity() {
         else b.progress.animate().alpha(0f).setDuration(350).start()
     }
 
+    // ------------------------------------------------------------ pengembang & proteksi
+    private fun devRow(): View = TextView(this).apply {
+        text = DevInfo.label()
+        textSize = 13f; setTextColor(0xFF8E8E93.toInt()); gravity = Gravity.CENTER
+        setPadding(dp(16), dp(14), dp(16), dp(14))
+        isClickable = false; isLongClickable = false; setTextIsSelectable(false)
+    }
+
+    private fun tamperExit() {
+        blocked = true
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Aplikasi telah dimodifikasi")
+            .setMessage("Aplikasi ini telah diubah dan tidak dapat dijalankan. Gunakan versi asli dari pengembangnya.")
+            .setCancelable(false)
+            .setPositiveButton("Tutup") { _, _ -> finishAffinity() }
+            .show()
+    }
+
+    // ------------------------------------------------------------ tinggi & posisi bar
+    private fun repositionPopup() {
+        val card = popupCard ?: return
+        root.postDelayed({
+            val bh = bars?.container?.height ?: 0
+            if (bh > 0 && card.parent != null) {
+                (card.layoutParams as FrameLayout.LayoutParams).bottomMargin = bh + dp(8)
+                card.requestLayout()
+            }
+        }, 80)
+    }
+
+    private fun sliderRow(
+        label: String, unit: String, minV: Int, maxV: Int, cur: Int, enabled: Boolean = true, onDone: (Int) -> Unit
+    ): View {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(10), dp(16), dp(8)) }
+        val tv = TextView(this).apply { textSize = 16f; setTextColor(if (enabled) fg else 0xFF8E8E93.toInt()) }
+        fun upd(v: Int) { tv.text = "$label  $v$unit" }
+        upd(cur)
+        val sb = SeekBar(this).apply {
+            this.max = maxV - minV
+            this.progress = cur - minV
+            isEnabled = enabled
+            progressTintList = android.content.res.ColorStateList.valueOf(blue)
+            thumbTintList = android.content.res.ColorStateList.valueOf(blue)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, user: Boolean) { upd(p + minV) }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) { onDone((s?.progress ?: 0) + minV) }
+            })
+        }
+        box.addView(tv)
+        box.addView(sb, LinearLayout.LayoutParams(MP, WC))
+        return box
+    }
+
+    private fun barHeightRow(): View = sliderRow("Tinggi Bar", " dp", 40, 64, barH) { v ->
+        barH = v
+        prefs.edit().putInt("bar_h", v).apply()
+        buildUi()
+        repositionPopup()
+    }
+
+    private fun barLiftRow(): View = sliderRow(
+        if (style == 27) "Jarak dari Bawah" else "Jarak dari Bawah (iOS 27)", " dp", -8, 48, barLift, style == 27
+    ) { v ->
+        barLift = v
+        prefs.edit().putInt("bar_lift", v).apply()
+        buildUi()
+        repositionPopup()
+    }
+
     // ------------------------------------------------------------ sensitivitas sentuhan
     private fun touchRow(): View {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(10), dp(16), dp(8)) }
@@ -501,7 +584,7 @@ class MainActivity : Activity() {
         box.addView(label)
         box.addView(sb, LinearLayout.LayoutParams(MP, WC))
         box.addView(TextView(this).apply {
-            text = "Lebih rendah = scroll lebih lambat dan tidak mudah salah sentuh."
+            text = "100% = paling halus (bawaan). Menurunkan nilai meredam sentuhan, tapi scroll bisa terasa kurang mulus."
             textSize = 12f; setTextColor(0xFF8E8E93.toInt())
         })
         return box
@@ -737,7 +820,9 @@ class MainActivity : Activity() {
         val w = WebView(this)
         t.web = w
         w.setBackgroundColor(bg)
+        w.overScrollMode = View.OVER_SCROLL_NEVER
         with(w.settings) {
+            offscreenPreRaster = true
             javaScriptEnabled = true
             domStorageEnabled = true
             setSupportMultipleWindows(true)
@@ -819,7 +904,8 @@ class MainActivity : Activity() {
             } else {
                 if (ev.actionMasked == MotionEvent.ACTION_DOWN) { downX = ev.x; downY = ev.y }
                 val e = MotionEvent.obtain(ev)
-                e.transform(Matrix().apply { setScale(f, f, downX, downY) })
+                touchMatrix.setScale(f, f, downX, downY)
+                e.transform(touchMatrix)
                 val r = v.onTouchEvent(e)
                 e.recycle()
                 r
@@ -1296,10 +1382,11 @@ class MainActivity : Activity() {
         val scrim = View(this).apply { setBackgroundColor(0x1A000000); setOnClickListener { hideSheet() } }
         layer.addView(scrim, MP, MP)
         val card = GlassView(this, webHolder, dp(26).toFloat(), 3, dark, bg, true)
+        popupCard = card
         card.addView(content, FrameLayout.LayoutParams(MP, WC))
-        val barH = bars?.container?.height?.takeIf { it > 0 } ?: dp(90)
+        val barHeightNow = bars?.container?.height?.takeIf { it > 0 } ?: dp(90)
         layer.addView(card, FrameLayout.LayoutParams(width, WC, Gravity.BOTTOM or align).apply {
-            setMargins(dp(14), 0, dp(14), barH + dp(8))
+            setMargins(dp(14), 0, dp(14), barHeightNow + dp(8))
         })
         root.addView(layer, MP, MP)
         sheetLayer = layer
@@ -1361,6 +1448,7 @@ class MainActivity : Activity() {
     }
 
     private fun menuSettings(h: FrameLayout) {
+        if (!DevInfo.valid()) { tamperExit(); return }
         val t = tab
         val sw = Switch(this).apply {
             isChecked = t.desktop
@@ -1375,14 +1463,19 @@ class MainActivity : Activity() {
             pmRow(null, "Tampilan", false, segmented()),
             pmRow(null, "Blur Latar (berat)", false, bs),
             touchRow(),
+            barHeightRow(),
+            barLiftRow(),
             pmRow("photo", "Ubah Latar Halaman Awal") { hideSheet(); pickBackground() },
-            pmRow("trash", "Hapus Riwayat & Data") { clearData() }
+            pmRow("trash", "Hapus Riwayat & Data") { clearData() },
+            devRow()
         ))
     }
 
     private fun setBlur(on: Boolean) {
         GlassView.blur = on
         prefs.edit().putBoolean("blur", on).apply()
+        h.removeCallbacks(ticker)
+        if (on) h.post(ticker)
         hideSheet(false)
         buildUi()
     }
