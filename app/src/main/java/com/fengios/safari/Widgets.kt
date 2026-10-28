@@ -6,10 +6,12 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.widget.ScrollView
 import android.os.Build
+import android.view.Gravity
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.TextView
 import kotlin.math.max
 import kotlin.math.min
 
@@ -72,6 +74,13 @@ class IconView(ctx: Context, var kind: String, var tint: Int = Color.BLACK, var 
             "plus" -> {
                 p.strokeWidth = 2.4f
                 c.drawLine(12f, 4.5f, 12f, 19.5f, p); c.drawLine(4.5f, 12f, 19.5f, 12f, p)
+            }
+            "fillarrow" -> {
+                c.drawCircle(12f, 12f, 9f, p)
+                c.drawPath(Path().apply {
+                    moveTo(15.5f, 15.5f); lineTo(9f, 9f)
+                    moveTo(9f, 13f); lineTo(9f, 9f); lineTo(13f, 9f)
+                }, p)
             }
             "search" -> {
                 c.drawCircle(10.5f, 10.5f, 6.5f, p); c.drawLine(15.4f, 15.4f, 20f, 20f, p)
@@ -311,4 +320,67 @@ private class FlatView(ctx: Context) : View(ctx) {
 
 private class FlatImage(ctx: Context) : ImageView(ctx) {
     override fun onMeasure(w: Int, h: Int) { setMeasuredDimension(exactOrZero(w), exactOrZero(h)) }
+}
+
+/** Ikon unduhan di bar alamat: lingkaran biru berpanah bawah, dengan cincin progres saat mengunduh. */
+class DownloadIcon(ctx: Context) : View(ctx) {
+    private var active = false
+    private var progress = 0f
+    private val d = resources.displayMetrics.density
+    private val fillP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF0A84FF.toInt() }
+    private val ringP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; color = 0xFF0A84FF.toInt()
+    }
+    private val arrowP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; color = Color.WHITE
+    }
+
+    fun update(active: Boolean, progress: Float) {
+        this.active = active; this.progress = progress; invalidate()
+    }
+
+    override fun onDraw(c: Canvas) {
+        val cx = width / 2f
+        val cy = height / 2f
+        val r = 9f * d
+        c.drawCircle(cx, cy, r, fillP)
+        val u = r / 9f
+        arrowP.strokeWidth = 1.9f * u
+        c.drawLine(cx, cy - 4.5f * u, cx, cy + 3f * u, arrowP)
+        c.drawLine(cx - 3.3f * u, cy + 0.2f * u, cx, cy + 3.6f * u, arrowP)
+        c.drawLine(cx + 3.3f * u, cy + 0.2f * u, cx, cy + 3.6f * u, arrowP)
+        if (active) {
+            ringP.strokeWidth = 2f * d
+            val rr = r + 3.5f * d
+            c.drawArc(RectF(cx - rr, cy - rr, cx + rr, cy + rr), -90f, maxOf(progress, 0.06f) * 360f, false, ringP)
+        }
+    }
+}
+
+/** Kotak ikon situs (favicon, atau huruf awal bila belum ada). */
+fun siteTile(ctx: Context, store: Store, url: String, size: Int, radius: Int): View {
+    val host = store.host(url)
+    val bmp = store.icon(host)
+    val box = FrameLayout(ctx)
+    if (bmp != null) {
+        box.background = GradientDrawable().apply { cornerRadius = radius.toFloat(); setColor(Color.WHITE) }
+        box.addView(ImageView(ctx).apply {
+            setImageBitmap(bmp); scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(size / 6, size / 6, size / 6, size / 6)
+        }, FrameLayout.LayoutParams(-1, -1))
+    } else {
+        val pal = intArrayOf(
+            0xFF8E8E93.toInt(), 0xFF5E7CE2.toInt(), 0xFFE2745E.toInt(),
+            0xFF4CAF7D.toInt(), 0xFFB07CE0.toInt(), 0xFFE0B24C.toInt()
+        )
+        box.background = GradientDrawable().apply {
+            cornerRadius = radius.toFloat(); setColor(pal[(host.hashCode() and 0x7fffffff) % pal.size])
+        }
+        box.addView(TextView(ctx).apply {
+            text = host.take(1).uppercase(); setTextColor(Color.WHITE)
+            textSize = size / ctx.resources.displayMetrics.density * 0.45f
+            gravity = Gravity.CENTER; typeface = Typeface.DEFAULT_BOLD
+        }, FrameLayout.LayoutParams(-1, -1))
+    }
+    return box
 }

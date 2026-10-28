@@ -18,7 +18,9 @@ import android.text.Spannable
 import android.text.SpannableString
 import android.text.TextUtils
 import android.text.format.Formatter
+import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
+import org.json.JSONArray
 import android.util.Patterns
 import android.view.*
 import android.view.animation.DecelerateInterpolator
@@ -67,6 +69,19 @@ class MainActivity : Activity() {
     private var tabQuery = ""
     private var tabSearchOn = false
     private var tabSearchHolder: FrameLayout? = null
+    private var touchScale = 0.8f
+    private var scrollAcc = 0
+    private var downX = 0f
+    private var downY = 0f
+    private var sugLayer: FrameLayout? = null
+    private var sugCol: LinearLayout? = null
+    private var sugScroll: ScrollView? = null
+    private var sugMute = false
+    private var sugSeq = 0
+    private var sugQuery = ""
+    private var dlAny = false
+    private var dlActive = false
+    private var dlProgress = 0f
 
     inner class Tab {
         lateinit var web: WebView
@@ -87,6 +102,7 @@ class MainActivity : Activity() {
         lateinit var host: TextView
         lateinit var edit: EditText
         lateinit var aa: View
+        lateinit var dl: DownloadIcon
         lateinit var reload: IconView
         lateinit var cancel: TextView
         lateinit var progress: View
@@ -115,6 +131,7 @@ class MainActivity : Activity() {
         style = prefs.getInt("style", 27)
         organizeAuto = prefs.getBoolean("organize", true)
         GlassView.blur = prefs.getBoolean("blur", false)
+        touchScale = prefs.getInt("touch", 80) / 100f
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
@@ -149,7 +166,7 @@ class MainActivity : Activity() {
 
     override fun onConfigurationChanged(c: Configuration) { super.onConfigurationChanged(c); buildUi() }
 
-    override fun onResume() { super.onResume(); tab.web.onResume(); h.post(ticker) }
+    override fun onResume() { super.onResume(); tab.web.onResume(); h.post(ticker); pollDownloads() }
     override fun onPause() {
         super.onPause()
         h.removeCallbacks(ticker)
@@ -204,6 +221,7 @@ class MainActivity : Activity() {
             isAppearanceLightStatusBars = !dark
             isAppearanceLightNavigationBars = !dark
         }
+        hideSuggestions()
         bars?.let { root.removeView(it.container) }
         tabs.forEach { it.web.setBackgroundColor(bg) }
         val b = if (style == 27) build27() else build18()
@@ -213,6 +231,7 @@ class MainActivity : Activity() {
         root.addView(b.container, FrameLayout.LayoutParams(MP, WC, Gravity.BOTTOM))
         syncStart()
         updateUi()
+        pollDownloads()
     }
 
     private fun applyInsets() {
@@ -223,6 +242,7 @@ class MainActivity : Activity() {
         val b = bars ?: return
         val pad = if (imeInset > navInset) imeInset else navInset
         if (style == 27) b.padView.setPadding(dp(14), 0, dp(14), pad + dp(8)) else b.padView.setPadding(0, dp(8), 0, pad)
+        sugScroll?.setPadding(dp(14), topInset + dp(12), dp(14), pad + dp(80))
     }
 
     private fun roundClip(v: View, r: Int) {
@@ -246,6 +266,11 @@ class MainActivity : Activity() {
             setOnClickListener(aaClick)
         }
         pill.addView(b.aa, FrameLayout.LayoutParams(dp(46), MP, Gravity.START))
+        b.dl = DownloadIcon(this).apply {
+            visibility = View.GONE
+            setOnClickListener { if (collapsed) setCollapsed(false) else showDownloads() }
+        }
+        pill.addView(b.dl, FrameLayout.LayoutParams(dp(46), MP, Gravity.START))
 
         b.host = TextView(this).apply {
             textSize = 16f; setTextColor(fg); gravity = Gravity.CENTER; maxLines = 1
@@ -262,6 +287,11 @@ class MainActivity : Activity() {
             imeOptions = EditorInfo.IME_ACTION_GO
             gravity = Gravity.CENTER_VERTICAL
             visibility = View.GONE
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(s: Editable?) { onEditChanged(s?.toString() ?: "") }
+            })
             setOnEditorActionListener { _, id, ev ->
                 if (id == EditorInfo.IME_ACTION_GO || (ev != null && ev.keyCode == KeyEvent.KEYCODE_ENTER)) {
                     val s = text.toString()
@@ -400,16 +430,20 @@ class MainActivity : Activity() {
             }
         }
         b.aa.animate().alpha(if (c) 0f else 1f).setDuration(200).start()
+        b.dl.animate().alpha(if (c) 0f else 1f).setDuration(200).start()
         b.reload.animate().alpha(if (c) 0f else 1f).setDuration(200).start()
     }
 
     private fun beginEdit() {
         val b = bars ?: return
         editing = true
-        b.host.visibility = View.GONE; b.aa.visibility = View.GONE; b.reload.visibility = View.GONE
+        b.host.visibility = View.GONE; b.aa.visibility = View.GONE; b.reload.visibility = View.GONE; b.dl.visibility = View.GONE
         b.edit.visibility = View.VISIBLE; b.cancel.visibility = View.VISIBLE
+        sugMute = true
         b.edit.setText(tab.web.url ?: tab.url)
+        sugMute = false
         b.edit.requestFocus(); b.edit.selectAll()
+        showSuggestions("", emptyList())
         imm().showSoftInput(b.edit, 0)
         b.hideOnEdit.forEach { it.visibility = View.GONE }
     }
@@ -420,7 +454,9 @@ class MainActivity : Activity() {
         imm().hideSoftInputFromWindow(b.edit.windowToken, 0)
         b.edit.clearFocus()
         b.edit.visibility = View.GONE; b.cancel.visibility = View.GONE
-        b.host.visibility = View.VISIBLE; b.aa.visibility = View.VISIBLE; b.reload.visibility = View.VISIBLE
+        b.host.visibility = View.VISIBLE; b.reload.visibility = View.VISIBLE
+        syncDlIcon()
+        hideSuggestions()
         b.hideOnEdit.forEach { it.visibility = View.VISIBLE }
     }
 
@@ -438,6 +474,208 @@ class MainActivity : Activity() {
         b.progress.layoutParams = (b.progress.layoutParams as FrameLayout.LayoutParams).apply { width = w }
         if (t.progress in 1..99) b.progress.animate().cancel().also { b.progress.alpha = 1f }
         else b.progress.animate().alpha(0f).setDuration(350).start()
+    }
+
+    // ------------------------------------------------------------ sensitivitas sentuhan
+    private fun touchRow(): View {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(10), dp(16), dp(8)) }
+        val label = TextView(this).apply { textSize = 16f; setTextColor(fg) }
+        fun upd(p: Int) { label.text = "Sensitivitas Sentuhan  $p%" }
+        val start = (touchScale * 100).toInt().coerceIn(40, 120)
+        upd(start)
+        val sb = SeekBar(this).apply {
+            max = 80; progress = start - 40
+            progressTintList = android.content.res.ColorStateList.valueOf(blue)
+            thumbTintList = android.content.res.ColorStateList.valueOf(blue)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, user: Boolean) {
+                    val v = p + 40
+                    upd(v)
+                    touchScale = v / 100f
+                    prefs.edit().putInt("touch", v).apply()
+                }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
+        }
+        box.addView(label)
+        box.addView(sb, LinearLayout.LayoutParams(MP, WC))
+        box.addView(TextView(this).apply {
+            text = "Lebih rendah = scroll lebih lambat dan tidak mudah salah sentuh."
+            textSize = 12f; setTextColor(0xFF8E8E93.toInt())
+        })
+        return box
+    }
+
+    // ------------------------------------------------------------ ikon unduhan di bar alamat
+    private val dlPoll = Runnable { pollDownloads() }
+
+    private fun syncDlIcon() {
+        val b = bars ?: return
+        if (editing) return
+        b.dl.update(dlActive, dlProgress)
+        b.dl.visibility = if (dlAny) View.VISIBLE else View.GONE
+        b.aa.visibility = if (dlAny) View.GONE else View.VISIBLE
+    }
+
+    private fun pollDownloads() {
+        val dm = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        val cleared = prefs.getLong("dl_cleared", 0L)
+        var any = false
+        var active = false
+        var total = 0L
+        var so = 0L
+        try {
+            dm.query(DownloadManager.Query())?.use { c ->
+                while (c.moveToNext()) {
+                    val mod = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_LAST_MODIFIED_TIMESTAMP))
+                    if (mod <= cleared) continue
+                    any = true
+                    val st = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                    if (st == DownloadManager.STATUS_RUNNING || st == DownloadManager.STATUS_PENDING ||
+                        st == DownloadManager.STATUS_PAUSED
+                    ) {
+                        active = true
+                        total += c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)).coerceAtLeast(0L)
+                        so += c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                    }
+                }
+            }
+        } catch (e: Exception) { }
+        dlAny = any
+        dlActive = active
+        dlProgress = if (active && total > 0) so.toFloat() / total else 0f
+        syncDlIcon()
+        h.removeCallbacks(dlPoll)
+        if (active) h.postDelayed(dlPoll, 600)
+    }
+
+    // ------------------------------------------------------------ saran pencarian
+    private val sugFetch = Runnable { fetchSuggest(sugQuery) }
+
+    private fun onEditChanged(q: String) {
+        if (sugMute || !editing) return
+        sugQuery = q
+        showSuggestions(q, emptyList())
+        h.removeCallbacks(sugFetch)
+        if (q.isNotBlank()) h.postDelayed(sugFetch, 250)
+    }
+
+    private fun fetchSuggest(q: String) {
+        if (q.isBlank()) return
+        val id = ++sugSeq
+        Thread {
+            try {
+                val conn = java.net.URL(
+                    "https://suggestqueries.google.com/complete/search?client=firefox&hl=id&q=" + Uri.encode(q)
+                ).openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 4000
+                conn.readTimeout = 4000
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val arr = JSONArray(body).getJSONArray(1)
+                val out = (0 until arr.length()).map { arr.getString(it) }.take(8)
+                runOnUiThread { if (id == sugSeq && editing) showSuggestions(q, out) }
+            } catch (e: Exception) { }
+        }.start()
+    }
+
+    private fun ensureSugLayer(): LinearLayout {
+        sugCol?.let { return it }
+        val pad = if (imeInset > navInset) imeInset else navInset
+        val layer = FrameLayout(this)
+        layer.setBackgroundColor(if (dark) 0xF2000000.toInt() else 0xF2F2F2F7.toInt())
+        layer.isClickable = true
+        val sv = ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false; clipToPadding = false
+            setPadding(dp(14), topInset + dp(12), dp(14), pad + dp(80))
+        }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        sv.addView(col, MP, WC)
+        layer.addView(sv, MP, MP)
+        val idx = bars?.let { root.indexOfChild(it.container) } ?: -1
+        if (idx >= 0) root.addView(layer, idx, FrameLayout.LayoutParams(MP, MP))
+        else root.addView(layer, MP, MP)
+        sugLayer = layer; sugCol = col; sugScroll = sv
+        return col
+    }
+
+    private fun hideSuggestions() {
+        h.removeCallbacks(sugFetch)
+        sugSeq++
+        sugLayer?.let { root.removeView(it) }
+        sugLayer = null; sugCol = null; sugScroll = null
+    }
+
+    private fun showSuggestions(q: String, google: List<String>) {
+        val col = ensureSugLayer()
+        col.removeAllViews()
+        val gray = 0xFF8E8E93.toInt()
+        val qq = q.trim()
+        fun head(t: String) {
+            col.addView(TextView(this).apply {
+                text = t; textSize = 13f; setTextColor(gray); setPadding(dp(8), dp(10), 0, dp(6))
+            })
+        }
+        val hist = store.history()
+        val local = if (qq.isEmpty()) hist.distinctBy { it.u }.take(6)
+        else hist.filter { it.t.contains(qq, true) || it.u.contains(qq, true) }.distinctBy { it.u }.take(3)
+        if (local.isNotEmpty()) {
+            head(if (qq.isEmpty()) "Riwayat Terbaru" else "Riwayat")
+            for (e in local) col.addView(histSug(e))
+        }
+        if (qq.isNotEmpty()) {
+            head("Saran Google")
+            col.addView(sugRow(qq, qq, true))
+            for (s in google) if (!s.equals(qq, true)) col.addView(sugRow(s, qq, false))
+        }
+    }
+
+    private fun sugRow(text: String, q: String, first: Boolean): View {
+        val gray = 0xFF8E8E93.toInt()
+        val r = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            if (first) background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(fillCol) }
+        }
+        val ic = FrameLayout(this)
+        ic.background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(fillCol) }
+        ic.addView(IconView(this, "search", fg, 0.55f), FrameLayout.LayoutParams(MP, MP))
+        r.addView(ic, LinearLayout.LayoutParams(dp(36), dp(36)))
+        val sp = SpannableString(text)
+        if (text.startsWith(q, true) && text.length > q.length) {
+            sp.setSpan(ForegroundColorSpan(gray), q.length, text.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        r.addView(TextView(this).apply {
+            this.text = sp; textSize = 17f; setTextColor(fg); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+            setPadding(dp(12), 0, dp(8), 0)
+        }, LinearLayout.LayoutParams(0, WC, 1f))
+        r.addView(IconView(this, "fillarrow", gray, 0.6f).apply {
+            setOnClickListener {
+                val b = bars
+                if (b != null) { b.edit.setText(text); b.edit.setSelection(text.length) }
+            }
+        }, LinearLayout.LayoutParams(dp(34), dp(34)))
+        r.setOnClickListener { endEdit(); go(text) }
+        return r
+    }
+
+    private fun histSug(e: Entry): View {
+        val r = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+        }
+        r.addView(siteTile(this, store, e.u, dp(36), dp(10)), LinearLayout.LayoutParams(dp(36), dp(36)))
+        val tx = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), 0, 0, 0) }
+        tx.addView(TextView(this).apply {
+            text = e.t.ifBlank { store.host(e.u) }; textSize = 16f; setTextColor(fg)
+            maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+        })
+        tx.addView(TextView(this).apply {
+            text = store.host(e.u); textSize = 12f; setTextColor(0xFF8E8E93.toInt()); maxLines = 1
+        })
+        r.addView(tx, LinearLayout.LayoutParams(0, WC, 1f))
+        r.setOnClickListener { endEdit(); go(e.u) }
+        return r
     }
 
     // ------------------------------------------------------------ halaman awal
@@ -565,7 +803,26 @@ class MainActivity : Activity() {
         w.setOnScrollChangeListener { _, _, y, _, oy ->
             if (isCur() && !editing) {
                 val d = y - oy
-                if (y <= 10) setCollapsed(false) else if (d > 14) setCollapsed(true) else if (d < -14) setCollapsed(false)
+                if (y <= 10) {
+                    scrollAcc = 0; setCollapsed(false)
+                } else {
+                    if ((d > 0 && scrollAcc < 0) || (d < 0 && scrollAcc > 0)) scrollAcc = 0
+                    scrollAcc += d
+                    if (scrollAcc > dp(40)) setCollapsed(true) else if (scrollAcc < -dp(28)) setCollapsed(false)
+                }
+            }
+        }
+        w.setOnTouchListener { v, ev ->
+            val f = touchScale
+            if (f >= 0.99f) {
+                false
+            } else {
+                if (ev.actionMasked == MotionEvent.ACTION_DOWN) { downX = ev.x; downY = ev.y }
+                val e = MotionEvent.obtain(ev)
+                e.transform(Matrix().apply { setScale(f, f, downX, downY) })
+                val r = v.onTouchEvent(e)
+                e.recycle()
+                r
             }
         }
         tabs.add(t)
@@ -1069,6 +1326,7 @@ class MainActivity : Activity() {
         val fwRow = pmRow("forward", "Maju") { hideSheet(); if (tab.web.canGoForward()) tab.web.goForward() }
         fwRow.alpha = if (tab.web.canGoForward()) 1f else .4f
         pmList(h, null, null, listOf(
+            pmRow("pagemenu", "Menu Halaman") { hideSheet(); showPageMenu() },
             pmRow("share", "Bagikan Halaman") { hideSheet(); shareUrl() },
             pmRow("star", "Tambah ke…", true) { menuAdd(h) },
             pmRow("tabs", "Tab", true) { menuTabs(h) },
@@ -1098,8 +1356,7 @@ class MainActivity : Activity() {
         pmList(h, "Bookmark & Riwayat", { menuTop(h) }, listOf(
             pmRow("book", "Bookmark") { hideSheet(); openStartIn(1) },
             pmRow("glasses", "Daftar Bacaan") { hideSheet(); openStartIn(2) },
-            pmRow("clock", "Riwayat") { hideSheet(); openStartIn(3) },
-            pmRow("download", "Unduhan") { hideSheet(); showDownloads() }
+            pmRow("clock", "Riwayat") { hideSheet(); openStartIn(3) }
         ))
     }
 
@@ -1117,6 +1374,7 @@ class MainActivity : Activity() {
             pmRow("desktop", "Situs Desktop", false, sw),
             pmRow(null, "Tampilan", false, segmented()),
             pmRow(null, "Blur Latar (berat)", false, bs),
+            touchRow(),
             pmRow("photo", "Ubah Latar Halaman Awal") { hideSheet(); pickBackground() },
             pmRow("trash", "Hapus Riwayat & Data") { clearData() }
         ))
@@ -1198,7 +1456,10 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------------ downloads
     private val dlReceiver = object : BroadcastReceiver() {
-        override fun onReceive(c: Context?, i: Intent?) { toast("Unduhan selesai • tersimpan di folder Unduhan") }
+        override fun onReceive(c: Context?, i: Intent?) {
+            toast("Unduhan selesai • tersimpan di folder Unduhan")
+            pollDownloads()
+        }
     }
 
     private fun download(url: String, ua: String?, cd: String?, mime: String?) {
@@ -1213,55 +1474,124 @@ class MainActivity : Activity() {
             req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
             (getSystemService(DOWNLOAD_SERVICE) as DownloadManager).enqueue(req)
             toast("Mengunduh “$name”")
+            pollDownloads()
         } catch (e: Exception) {
             toast("Unduhan gagal")
         }
     }
 
+    private fun fileThumb(dm: DownloadManager, id: Long, title: String, ok: Boolean): View {
+        val ext = title.substringAfterLast('.', "").take(4).uppercase()
+        val box = FrameLayout(this)
+        box.background = GradientDrawable().apply { cornerRadius = dp(8).toFloat(); setColor(fillCol) }
+        roundClip(box, dp(8))
+        var done = false
+        if (ok) {
+            val mime = dm.getMimeTypeForDownloadedFile(id) ?: ""
+            if (mime.startsWith("image/")) {
+                try {
+                    val uri = dm.getUriForDownloadedFile(id)
+                    val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o) }
+                    var s = 1
+                    while (o.outWidth / s > 200 || o.outHeight / s > 200) s *= 2
+                    val o2 = BitmapFactory.Options().apply { inSampleSize = s }
+                    val bmp = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o2) }
+                    if (bmp != null) {
+                        box.addView(ImageView(this).apply {
+                            setImageBitmap(bmp); scaleType = ImageView.ScaleType.CENTER_CROP
+                        }, FrameLayout.LayoutParams(MP, MP))
+                        done = true
+                    }
+                } catch (e: Exception) { }
+            }
+        }
+        if (!done) box.addView(TextView(this).apply {
+            text = ext.ifEmpty { "FILE" }; textSize = 11f; setTextColor(fg)
+            typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+        }, FrameLayout.LayoutParams(MP, MP))
+        return box
+    }
+
     private fun showDownloads() {
         val dm = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
-        val c = sheetBase()
-        c.addView(TextView(this).apply {
-            text = "Unduhan"; textSize = 20f; setTextColor(fg); typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(16), dp(6), dp(16), dp(8))
-        })
+        val cleared = prefs.getLong("dl_cleared", 0L)
+        val c = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), dp(8), dp(8), dp(8)) }
+
+        val hdr = FrameLayout(this).apply { setPadding(dp(4), dp(2), dp(4), dp(6)) }
+        val ok = flatCircle(IconView(this, "check", Color.WHITE, 0.55f), dp(40), blue)
+        ok.setOnClickListener { hideSheet() }
+        hdr.addView(ok, FrameLayout.LayoutParams(dp(40), dp(40), Gravity.START or Gravity.CENTER_VERTICAL))
+        hdr.addView(TextView(this).apply {
+            text = "Unduhan"; textSize = 17f; setTextColor(fg); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+        }, FrameLayout.LayoutParams(MP, dp(40), Gravity.CENTER))
+        val clear = TextView(this).apply {
+            text = "Hapus"; textSize = 15f; setTextColor(fg); gravity = Gravity.CENTER
+            setPadding(dp(16), 0, dp(16), 0)
+            background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(fillCol) }
+            setOnClickListener {
+                prefs.edit().putLong("dl_cleared", System.currentTimeMillis()).apply()
+                hideSheet()
+                pollDownloads()
+            }
+        }
+        hdr.addView(clear, FrameLayout.LayoutParams(WC, dp(36), Gravity.END or Gravity.CENTER_VERTICAL))
+        c.addView(hdr)
+
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         var n = 0
         dm.query(DownloadManager.Query())?.use { cursor ->
             while (cursor.moveToNext() && n < 30) {
+                val mod = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LAST_MODIFIED_TIMESTAMP))
+                if (mod <= cleared) continue
                 val id = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_ID))
                 val title = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE)) ?: "File"
                 val st = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
                 val total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
                 val soFar = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                val success = st == DownloadManager.STATUS_SUCCESSFUL
                 val sub = when (st) {
                     DownloadManager.STATUS_SUCCESSFUL -> Formatter.formatShortFileSize(this, total)
                     DownloadManager.STATUS_FAILED -> "Gagal"
                     else -> "Mengunduh… " + (if (total > 0) "${soFar * 100 / total}%" else "")
                 }
                 val r = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(9), dp(16), dp(9))
-                    setOnClickListener { if (st == DownloadManager.STATUS_SUCCESSFUL) openDownload(dm, id) }
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(10), dp(9), dp(10), dp(9))
+                    setOnClickListener { if (success) openDownload(dm, id) }
                 }
-                r.addView(TextView(this).apply {
-                    text = title; textSize = 16f; setTextColor(fg); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+                r.addView(fileThumb(dm, id, title, success), LinearLayout.LayoutParams(dp(42), dp(42)))
+                val tx = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                tx.addView(TextView(this).apply {
+                    text = title; textSize = 15f; setTextColor(fg); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
                 })
-                r.addView(TextView(this).apply { text = sub; textSize = 13f; setTextColor(0xFF8E8E93.toInt()) })
+                tx.addView(TextView(this).apply { text = sub; textSize = 12f; setTextColor(0xFF8E8E93.toInt()) })
+                r.addView(tx, LinearLayout.LayoutParams(0, WC, 1f).apply { marginStart = dp(12) })
+                if (success) r.addView(IconView(this, "search", blue, 0.6f).apply {
+                    setOnClickListener {
+                        hideSheet()
+                        try {
+                            startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        } catch (e: Exception) { }
+                    }
+                }, LinearLayout.LayoutParams(dp(36), dp(36)))
+                if (n > 0) list.addView(
+                    View(this).apply { setBackgroundColor(if (dark) 0x22FFFFFF else 0x22000000) },
+                    LinearLayout.LayoutParams(MP, 1).apply { marginStart = dp(64) }
+                )
                 list.addView(r)
                 n++
             }
         }
         if (n == 0) list.addView(TextView(this).apply {
-            text = "Belum ada unduhan"; textSize = 15f; setTextColor(0xFF8E8E93.toInt()); setPadding(dp(16), dp(10), dp(16), dp(14))
+            text = "Tidak ada unduhan"; textSize = 15f; setTextColor(0xFF8E8E93.toInt()); setPadding(dp(14), dp(14), dp(14), dp(14))
         })
-        val sv = ScrollView(this).apply { addView(list) }
-        c.addView(sv, LinearLayout.LayoutParams(MP, if (n > 5) dp(300) else WC))
-        c.addView(sep())
-        c.addView(row("Buka Folder Unduhan") {
-            hideSheet()
-            try { startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { }
-        })
-        showPopupCard(c, Gravity.CENTER_HORIZONTAL, dp(320))
+        val sv = MaxHeightScrollView(this, (resources.displayMetrics.heightPixels * 0.5f).toInt()).apply {
+            isVerticalScrollBarEnabled = false
+            addView(list)
+        }
+        c.addView(sv, LinearLayout.LayoutParams(MP, WC))
+        showPopupCard(c, Gravity.CENTER_HORIZONTAL, resources.displayMetrics.widthPixels - dp(28))
     }
 
     private fun openDownload(dm: DownloadManager, id: Long) {
