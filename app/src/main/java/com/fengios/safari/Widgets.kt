@@ -165,8 +165,8 @@ class GlassView(
         var blur = false   // blur latar belakang (berat) - default mati
     }
 
-    private val img = ImageView(ctx).apply { scaleType = ImageView.ScaleType.FIT_XY }
-    private val tint = View(ctx)
+    private val img = FlatImage(ctx).apply { scaleType = ImageView.ScaleType.FIT_XY }
+    private val tint = FlatView(ctx)
     private var bmp: Bitmap? = null
     private val cv = Canvas()
     private val loc = IntArray(2)
@@ -296,4 +296,19 @@ class MaxHeightScrollView(ctx: Context, private val maxH: Int) : ScrollView(ctx)
     override fun onMeasure(w: Int, h: Int) {
         super.onMeasure(w, View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST))
     }
+}
+
+/*
+ * Latar kaca tidak boleh ikut menentukan ukuran WRAP_CONTENT (View biasa akan mengambil
+ * setinggi layar). Ukuran baru diisi saat induk sudah menentukan ukuran pastinya.
+ */
+private fun exactOrZero(spec: Int): Int =
+    if (View.MeasureSpec.getMode(spec) == View.MeasureSpec.EXACTLY) View.MeasureSpec.getSize(spec) else 0
+
+private class FlatView(ctx: Context) : View(ctx) {
+    override fun onMeasure(w: Int, h: Int) { setMeasuredDimension(exactOrZero(w), exactOrZero(h)) }
+}
+
+private class FlatImage(ctx: Context) : ImageView(ctx) {
+    override fun onMeasure(w: Int, h: Int) { setMeasuredDimension(exactOrZero(w), exactOrZero(h)) }
 }
