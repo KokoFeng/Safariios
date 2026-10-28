@@ -70,6 +70,29 @@ class IconView(ctx: Context, var kind: String, var tint: Int = Color.BLACK, var 
                 p.strokeWidth = 2.4f
                 c.drawLine(12f, 4.5f, 12f, 19.5f, p); c.drawLine(4.5f, 12f, 19.5f, 12f, p)
             }
+            "grid" -> {
+                p.style = Paint.Style.FILL
+                for (i in 0..2) for (j in 0..2) {
+                    val x = 4f + i * 6.5f; val y = 4f + j * 6.5f
+                    c.drawRoundRect(RectF(x, y, x + 4f, y + 4f), 1.1f, 1.1f, p)
+                }
+            }
+            "book" -> {
+                c.drawPath(Path().apply {
+                    moveTo(12f, 6.5f); quadTo(8.5f, 4.5f, 3.5f, 5.5f); lineTo(3.5f, 18f)
+                    quadTo(8.5f, 17f, 12f, 19.5f)
+                    moveTo(12f, 6.5f); quadTo(15.5f, 4.5f, 20.5f, 5.5f); lineTo(20.5f, 18f)
+                    quadTo(15.5f, 17f, 12f, 19.5f); lineTo(12f, 6.5f)
+                }, p)
+            }
+            "glasses" -> {
+                c.drawCircle(6.8f, 13f, 4.2f, p); c.drawCircle(17.2f, 13f, 4.2f, p)
+                c.drawPath(Path().apply { moveTo(10.6f, 12f); quadTo(12f, 10.6f, 13.4f, 12f) }, p)
+            }
+            "clock" -> {
+                c.drawCircle(12f, 12f, 8.5f, p)
+                c.drawPath(Path().apply { moveTo(12f, 7f); lineTo(12f, 12f); lineTo(15.5f, 14f) }, p)
+            }
             "close" -> {
                 p.strokeWidth = 2.4f
                 c.drawLine(6f, 6f, 18f, 18f, p); c.drawLine(18f, 6f, 6f, 18f, p)

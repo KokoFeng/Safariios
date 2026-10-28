@@ -57,6 +57,9 @@ class MainActivity : Activity() {
     private var lastScrollY = -1
     private var lastRefresh = 0L
     private var fileCb: ValueCallback<Array<Uri>>? = null
+    private lateinit var store: Store
+    private var startView: View? = null
+    private var startTop = -1
 
     inner class Tab {
         lateinit var web: WebView
@@ -66,6 +69,8 @@ class MainActivity : Activity() {
         var thumb: Bitmap? = null
         var desktop = false
         var zoom = 100
+        var start = false
+        var fromStart = false
     }
 
     inner class Bars {
@@ -98,6 +103,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("safari", MODE_PRIVATE)
+        store = Store(this)
         style = prefs.getInt("style", 27)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = Color.TRANSPARENT
@@ -117,7 +123,7 @@ class MainActivity : Activity() {
         }
 
         val saved = prefs.getString("tabs", null)?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()
-        if (saved.isEmpty()) addTab(HOME) else saved.forEach { addTab(it) }
+        if (saved.isEmpty()) addTab(null) else saved.forEach { addTab(if (it == "start:") null else it) }
         cur = prefs.getInt("cur", 0).coerceIn(0, tabs.size - 1)
         buildUi()
         selectTab(cur)
@@ -138,7 +144,7 @@ class MainActivity : Activity() {
         super.onPause()
         h.removeCallbacks(ticker)
         tab.web.onPause()
-        prefs.edit().putString("tabs", tabs.joinToString("\n") { it.web.url ?: it.url }).putInt("cur", cur).apply()
+        prefs.edit().putString("tabs", tabs.joinToString("\n") { if (it.start) "start:" else (it.web.url ?: it.url) }).putInt("cur", cur).apply()
     }
     override fun onDestroy() { super.onDestroy(); try { unregisterReceiver(dlReceiver) } catch (e: Exception) { } }
 
@@ -148,6 +154,7 @@ class MainActivity : Activity() {
             overlay != null -> hideOverview()
             editing -> endEdit()
             tab.web.canGoBack() -> tab.web.goBack()
+            !tab.start && tab.fromStart -> { tab.start = true; syncStart(); updateUi() }
             else -> super.onBackPressed()
         }
     }
@@ -157,6 +164,12 @@ class MainActivity : Activity() {
         if (req == 77) {
             fileCb?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(res, data))
             fileCb = null
+        } else if (req == 78) {
+            val uri = data?.data
+            if (res == RESULT_OK && uri != null) {
+                if (store.saveBg(uri)) { syncStart(); toast("Latar belakang diperbarui") }
+                else toast("Gagal memuat foto")
+            }
         } else super.onActivityResult(req, res, data)
     }
 
@@ -188,12 +201,14 @@ class MainActivity : Activity() {
         collapsed = false
         editing = false
         root.addView(b.container, FrameLayout.LayoutParams(MP, WC, Gravity.BOTTOM))
-        applyInsets()
+        syncStart()
         updateUi()
     }
 
     private fun applyInsets() {
-        (webHolder.layoutParams as FrameLayout.LayoutParams).topMargin = topInset
+        if (startView != null && startTop != topInset) { syncStart(); return }
+        val startOn = tabs.isNotEmpty() && tab.start
+        (webHolder.layoutParams as FrameLayout.LayoutParams).topMargin = if (startOn) 0 else topInset
         webHolder.requestLayout()
         val b = bars ?: return
         val pad = if (imeInset > navInset) imeInset else navInset
@@ -239,7 +254,7 @@ class MainActivity : Activity() {
                 if (id == EditorInfo.IME_ACTION_GO || (ev != null && ev.keyCode == KeyEvent.KEYCODE_ENTER)) {
                     val s = text.toString()
                     endEdit()
-                    tab.web.loadUrl(resolve(s))
+                    go(s)
                     true
                 } else false
             }
@@ -270,7 +285,10 @@ class MainActivity : Activity() {
             b.btn[kind] = v
             row.addView(v, LinearLayout.LayoutParams(0, MP, 1f))
         }
-        add("back") { if (tab.web.canGoBack()) tab.web.goBack() }
+        add("back") {
+            if (tab.web.canGoBack()) tab.web.goBack()
+            else if (!tab.start && tab.fromStart) { tab.start = true; syncStart(); updateUi() }
+        }
         add("forward") { if (tab.web.canGoForward()) tab.web.goForward() }
         add("share") { shareUrl() }
         add("more") { showMenu() }
@@ -365,13 +383,59 @@ class MainActivity : Activity() {
         val u = t.web.url ?: t.url
         b.host.text = if (u.isBlank() || u == "about:blank") "Telusuri atau masukkan nama situs web"
         else (Uri.parse(u).host?.removePrefix("www.") ?: u)
-        b.btn["back"]?.alpha = if (t.web.canGoBack()) 1f else .3f
+        b.btn["back"]?.alpha = if (t.web.canGoBack() || (!t.start && t.fromStart)) 1f else .3f
         b.btn["forward"]?.alpha = if (t.web.canGoForward()) 1f else .3f
         b.reload.set(if (t.progress in 1..99) "close" else "reload", fg)
         val w = b.pill.width * t.progress / 100
         b.progress.layoutParams = (b.progress.layoutParams as FrameLayout.LayoutParams).apply { width = w }
         if (t.progress in 1..99) b.progress.animate().cancel().also { b.progress.alpha = 1f }
         else b.progress.animate().alpha(0f).setDuration(350).start()
+    }
+
+    // ------------------------------------------------------------ halaman awal
+    private fun syncStart() {
+        startView?.let { webHolder.removeView(it) }
+        startView = null
+        startTop = topInset
+        val on = tabs.isNotEmpty() && tab.start
+        if (on) {
+            val v = StartPage(this, style, dark, store, topInset, { go(it) }, { pickBackground() }, { store.clearBg(); syncStart() }).build()
+            webHolder.addView(v, FrameLayout.LayoutParams(MP, MP))
+            startView = v
+        }
+        WindowCompat.getInsetsController(window, root).isAppearanceLightStatusBars =
+            !(dark || (on && (style == 27 || store.hasBg())))
+        applyInsets()
+    }
+
+    private fun pickBackground() {
+        val i = Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE)
+        try { startActivityForResult(Intent.createChooser(i, "Pilih foto latar belakang"), 78) }
+        catch (e: Exception) { toast("Tidak ada aplikasi galeri") }
+    }
+
+    private fun go(raw: String) {
+        val t = tab
+        if (t.start) { t.fromStart = true; t.start = false; syncStart() }
+        t.web.loadUrl(resolve(raw))
+    }
+
+    private fun addTo(kind: String) {
+        hideSheet()
+        val t = tab
+        if (t.start) { toast("Buka sebuah halaman dulu"); return }
+        val u = t.web.url ?: t.url
+        val ti = t.web.title ?: t.title
+        when (kind) {
+            "fav" -> store.pin(u, ti)
+            "bm" -> store.add("bm", u, ti)
+            else -> store.add("rl", u, ti)
+        }
+        toast(when (kind) {
+            "fav" -> "Ditambahkan ke Favorit"
+            "bm" -> "Bookmark ditambahkan"
+            else -> "Ditambahkan ke Daftar Bacaan"
+        })
     }
 
     // ------------------------------------------------------------ tabs
@@ -396,10 +460,13 @@ class MainActivity : Activity() {
 
         w.webViewClient = object : WebViewClient() {
             override fun onPageStarted(v: WebView?, u: String?, f: Bitmap?) {
-                t.url = u ?: ""; t.progress = 5; if (isCur()) updateUi()
+                t.url = u ?: ""; t.progress = 5
+                if (t.start) { t.start = false; if (isCur()) syncStart() }
+                if (isCur()) updateUi()
             }
             override fun onPageFinished(v: WebView?, u: String?) {
                 t.url = u ?: t.url; t.progress = 100; t.title = v?.title ?: t.title
+                if (u != null && u.startsWith("http")) store.addHistory(u, t.title)
                 v?.evaluateJavascript(
                     "(function(){var d=document.getElementById('__sf_sp');if(!d){d=document.createElement('div');" +
                         "d.id='__sf_sp';d.style.cssText='height:140px;width:1px;pointer-events:none';" +
@@ -421,8 +488,13 @@ class MainActivity : Activity() {
         w.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(v: WebView?, p: Int) { t.progress = p; if (isCur()) updateUi() }
             override fun onReceivedTitle(v: WebView?, title: String?) { t.title = title ?: "" }
+            override fun onReceivedIcon(v: WebView?, icon: Bitmap?) {
+                val u = v?.url
+                if (icon != null && u != null && u.startsWith("http")) store.saveIcon(store.host(u), icon)
+            }
             override fun onCreateWindow(v: WebView?, d: Boolean, g: Boolean, m: Message?): Boolean {
                 val nt = addTab(null)
+                nt.start = false
                 val tr = m?.obj as? WebView.WebViewTransport ?: return false
                 tr.webView = nt.web
                 m.sendToTarget()
@@ -443,12 +515,12 @@ class MainActivity : Activity() {
             }
         }
         tabs.add(t)
-        if (url != null) w.loadUrl(resolve(url))
+        if (url != null) w.loadUrl(resolve(url)) else t.start = true
         return t
     }
 
     private fun newTab(url: String?) {
-        addTab(url ?: HOME)
+        addTab(url)
         selectTab(tabs.size - 1)
     }
 
@@ -460,16 +532,18 @@ class MainActivity : Activity() {
         webHolder.addView(t.web, FrameLayout.LayoutParams(MP, MP))
         lastScrollY = -1
         setCollapsed(false)
+        syncStart()
         updateUi()
     }
 
     private fun capture(t: Tab) {
-        if (t.web.width == 0 || t.web.height == 0) return
+        val src: View = if (t.start && startView != null) startView!! else t.web
+        if (src.width == 0 || src.height == 0) return
         val s = 0.35f
-        val bmp = Bitmap.createBitmap((t.web.width * s).toInt(), (t.web.height * s).toInt(), Bitmap.Config.ARGB_8888)
+        val bmp = Bitmap.createBitmap((src.width * s).toInt(), (src.height * s).toInt(), Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         c.drawColor(bg); c.scale(s, s)
-        try { t.web.draw(c) } catch (e: Throwable) { }
+        try { src.draw(c) } catch (e: Throwable) { }
         t.thumb = bmp
     }
 
@@ -595,7 +669,7 @@ class MainActivity : Activity() {
             (t.web.parent as? ViewGroup)?.removeView(t.web)
             t.web.destroy()
             tabs.removeAt(j)
-            if (tabs.isEmpty()) addTab(HOME)
+            if (tabs.isEmpty()) addTab(null)
             if (j < cur) cur--
             cur = cur.coerceIn(0, tabs.size - 1)
             selectTab(cur)
@@ -689,6 +763,14 @@ class MainActivity : Activity() {
         val c = sheetBase()
         c.addView(row("Tab Baru") { hideSheet(); newTab(null) })
         c.addView(sep())
+        c.addView(row("Tambah ke Favorit") { addTo("fav") })
+        c.addView(sep())
+        c.addView(row("Tambah Bookmark") { addTo("bm") })
+        c.addView(sep())
+        c.addView(row("Tambah ke Daftar Bacaan") { addTo("rl") })
+        c.addView(sep())
+        c.addView(row("Ubah Latar Halaman Awal") { hideSheet(); pickBackground() })
+        c.addView(sep())
         c.addView(row("Unduhan") { hideSheet(); showDownloads() })
         c.addView(sep())
         c.addView(row("Tampilan Safari", segmented()))
@@ -739,6 +821,7 @@ class MainActivity : Activity() {
 
     private fun clearData() {
         WebStorage.getInstance().deleteAllData()
+        store.clearHistory()
         CookieManager.getInstance().removeAllCookies(null)
         tabs.forEach { it.web.clearCache(true); it.web.clearHistory() }
         hideSheet()
