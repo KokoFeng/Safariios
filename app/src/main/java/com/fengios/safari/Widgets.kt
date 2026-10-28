@@ -156,7 +156,8 @@ class IconView(ctx: Context, var kind: String, var tint: Int = Color.BLACK, var 
  */
 class GlassView(
     ctx: Context, private val source: View, var corner: Float,
-    private val kind: Int, dark: Boolean, var bgColor: Int
+    private val kind: Int, dark: Boolean, var bgColor: Int,
+    private val once: Boolean = false
 ) : FrameLayout(ctx) {
 
     companion object {
@@ -174,15 +175,17 @@ class GlassView(
     private val strokeP = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.4f * density }
     private val sheenP = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
+    private val live: Boolean get() = blur || once
 
     init {
         addView(img, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(tint, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        if (blur) {
+        if (live) {
             tint.setBackgroundColor(
                 when (kind) {
                     0 -> if (dark) 0xCC1C1C1E.toInt() else 0xCCF6F6F8.toInt()
                     1 -> if (dark) 0x33383838 else 0x40FFFFFF
+                    3 -> if (dark) 0x8C2A2A2C.toInt() else 0x99FFFFFF.toInt()
                     else -> if (dark) 0xE61C1C1E.toInt() else 0xE6F2F2F7.toInt()
                 }
             )
@@ -198,10 +201,10 @@ class GlassView(
                 else -> ColorDrawable(if (dark) 0xF51C1C1E.toInt() else 0xF5F2F2F7.toInt())
             }
         }
-        img.visibility = if (blur) View.VISIBLE else View.GONE
-        if (blur && kind == 1) img.colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.8f) })
-        if (blur && Build.VERSION.SDK_INT >= 31) {
-            val r = when (kind) { 0 -> 22f; 1 -> 14f; else -> 28f }
+        img.visibility = if (live) View.VISIBLE else View.GONE
+        if (live && (kind == 1 || kind == 3)) img.colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.8f) })
+        if (live && Build.VERSION.SDK_INT >= 31) {
+            val r = when (kind) { 0 -> 22f; 1 -> 14f; 3 -> 20f; else -> 28f }
             img.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
         }
         clipToOutline = true
@@ -211,6 +214,30 @@ class GlassView(
             }
         }
         setWillNotDraw(false)
+    }
+
+    // posisi tanpa memperhitungkan animasi (translasi/skala)
+    private fun origin(v: View, out: IntArray) {
+        var x = 0
+        var y = 0
+        var cur: View? = v
+        while (cur != null) {
+            x += cur.left; y += cur.top
+            val p = cur.parent
+            if (p is View) { x -= p.scrollX; y -= p.scrollY; cur = p } else cur = null
+        }
+        out[0] = x; out[1] = y
+    }
+
+    init {
+        // mode "once": ambil snapshot latar sekali setiap ukuran berubah, bukan tiap frame
+        if (once) addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+            override fun onLayoutChange(
+                v: View?, l: Int, t: Int, r: Int, b: Int, oldL: Int, oldT: Int, oldR: Int, oldB: Int
+            ) {
+                if (r - l > 0 && b - t > 0 && (r - l != oldR - oldL || b - t != oldB - oldT)) post { refresh() }
+            }
+        })
     }
 
     override fun onAttachedToWindow() { super.onAttachedToWindow(); all.add(this) }
@@ -231,7 +258,7 @@ class GlassView(
 
     override fun dispatchDraw(c: Canvas) {
         super.dispatchDraw(c)
-        if (kind == 1) {
+        if (kind == 1 || kind == 3) {
             rect.set(0f, 0f, width.toFloat(), height.toFloat())
             c.drawRoundRect(rect, corner, corner, sheenP)
             val i = strokeP.strokeWidth / 2
@@ -241,7 +268,7 @@ class GlassView(
     }
 
     fun refresh() {
-        if (!blur || width <= 0 || height <= 0 || !isShown) return
+        if (!live || width <= 0 || height <= 0 || !isShown) return
         val s = if (kind == 2) 0.07f else 0.1f
         val bw = max(2, (width * s).toInt())
         val bh = max(2, (height * s).toInt())
@@ -251,8 +278,8 @@ class GlassView(
             bmp = b
             img.setImageBitmap(b)
         }
-        getLocationInWindow(loc)
-        source.getLocationInWindow(sloc)
+        if (once) { origin(this, loc); origin(source, sloc) }
+        else { getLocationInWindow(loc); source.getLocationInWindow(sloc) }
         cv.setBitmap(b)
         cv.drawColor(bgColor)
         cv.save()

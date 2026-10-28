@@ -785,14 +785,10 @@ class MainActivity : Activity() {
     private fun showPopup(ov: FrameLayout, gravity: Int, content: View) {
         val layer = FrameLayout(this)
         layer.setOnClickListener { ov.removeView(layer) }
-        val card = FrameLayout(this).apply {
-            background = GradientDrawable().apply {
-                cornerRadius = dp(22).toFloat()
-                setColor(if (dark) 0xF22C2C2E.toInt() else 0xF7FFFFFF.toInt())
-            }
-            isClickable = true
-            addView(content, FrameLayout.LayoutParams(MP, WC))
-        }
+        val ovBg = if (dark) 0xFF1C1C1E.toInt() else 0xFFE5E5EA.toInt()
+        val card = GlassView(this, ov, dp(22).toFloat(), 3, dark, ovBg, true)
+        card.isClickable = true
+        card.addView(content, FrameLayout.LayoutParams(MP, WC))
         layer.addView(card, FrameLayout.LayoutParams(dp(280), WC, gravity or Gravity.TOP).apply {
             setMargins(dp(16), topInset + dp(60), dp(16), 0)
         })
@@ -991,92 +987,139 @@ class MainActivity : Activity() {
         bars?.container?.apply { alpha = 0f; animate().alpha(1f).setDuration(350).start() }
     }
 
-    private fun menuRow(icon: String?, label: String, trailing: View? = null, click: (() -> Unit)? = null): View {
+    // ---- popup kompak ala iOS 26 (kartu kaca di dekat tombol)
+    private fun pmRow(
+        icon: String?, label: String, chevron: Boolean = false, trailing: View? = null, click: (() -> Unit)? = null
+    ): View {
         val r = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), 0, dp(16), 0); minimumHeight = dp(52)
+            setPadding(dp(16), 0, dp(14), 0); minimumHeight = dp(50)
         }
         if (icon != null) r.addView(
-            IconView(this, icon, fg, 0.62f),
-            LinearLayout.LayoutParams(dp(30), dp(30)).apply { marginEnd = dp(14) }
+            IconView(this, icon, blue, 0.6f),
+            LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(14) }
         )
-        r.addView(TextView(this).apply { text = label; textSize = 17f; setTextColor(fg) }, LinearLayout.LayoutParams(0, WC, 1f))
+        r.addView(TextView(this).apply {
+            text = label; textSize = 16f; setTextColor(fg); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, WC, 1f))
         if (trailing != null) r.addView(trailing)
+        if (chevron) r.addView(
+            IconView(this, "forward", 0xFF8E8E93.toInt(), 0.4f),
+            LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginStart = dp(6) }
+        )
         if (click != null) r.setOnClickListener { click() }
         return r
     }
 
-    private fun showMenu() {
-        val t = tab
-        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(8), dp(10)) }
-        val groupBg = if (dark) 0xFF2C2C2E.toInt() else Color.WHITE
-        fun section(s: String) {
-            body.addView(TextView(this).apply {
-                text = s; textSize = 14f; setTextColor(0xFF8E8E93.toInt()); setPadding(dp(12), dp(14), 0, dp(6))
-            })
-        }
-        fun group(vararg rows: View) {
-            val g = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(groupBg) }
-            }
-            rows.forEachIndexed { i, r ->
-                if (i > 0) g.addView(
-                    View(this).apply { setBackgroundColor(if (dark) 0x22FFFFFF else 0x22000000) },
-                    LinearLayout.LayoutParams(MP, 1).apply { marginStart = dp(60) }
-                )
-                g.addView(r)
-            }
-            body.addView(g, LinearLayout.LayoutParams(MP, WC))
-        }
+    private fun pmSep() = View(this).apply {
+        setBackgroundColor(if (dark) 0x22FFFFFF else 0x22000000)
+    }.also { it.layoutParams = LinearLayout.LayoutParams(MP, 1).apply { marginStart = dp(58) } }
 
-        section("Aksi Tab")
-        group(
-            menuRow("plus", "Tab Baru") { hideSheet(); newTab(null) },
-            menuRow("tabs", "Lihat Semua Tab") { hideSheet(); showOverview() },
-            menuRow("share", "Bagikan") { hideSheet(); shareUrl() },
-            menuRow("forward", "Maju") { hideSheet(); if (tab.web.canGoForward()) tab.web.goForward() },
-            menuRow("star", "Tambah ke Favorit") { addTo("fav") },
-            menuRow("book", "Tambah Bookmark") { addTo("bm") },
-            menuRow("glasses", "Tambah ke Daftar Bacaan") { addTo("rl") }
-        )
-        section("Pengaturan Situs Web")
+    private fun pmList(h: FrameLayout, title: String?, onBack: (() -> Unit)?, rows: List<View>) {
+        h.removeAllViews()
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(6), 0, dp(6)) }
+        if (onBack != null) {
+            col.addView(pmRow("back", title ?: "Kembali") { onBack() })
+            col.addView(pmSep())
+        }
+        rows.forEachIndexed { i, r ->
+            if (i > 0) col.addView(pmSep())
+            col.addView(r)
+        }
+        val sv = MaxHeightScrollView(this, (resources.displayMetrics.heightPixels * 0.55f).toInt()).apply {
+            isVerticalScrollBarEnabled = false
+            addView(col)
+        }
+        h.addView(sv, FrameLayout.LayoutParams(MP, WC))
+    }
+
+    private fun showPopupCard(content: View, align: Int, width: Int = dp(268)) {
+        hideSheet(false)
+        val layer = FrameLayout(this)
+        val scrim = View(this).apply { setBackgroundColor(0x1A000000); setOnClickListener { hideSheet() } }
+        layer.addView(scrim, MP, MP)
+        val card = GlassView(this, webHolder, dp(26).toFloat(), 3, dark, bg, true)
+        card.addView(content, FrameLayout.LayoutParams(MP, WC))
+        val barH = bars?.container?.height?.takeIf { it > 0 } ?: dp(90)
+        layer.addView(card, FrameLayout.LayoutParams(width, WC, Gravity.BOTTOM or align).apply {
+            setMargins(dp(14), 0, dp(14), barH + dp(8))
+        })
+        root.addView(layer, MP, MP)
+        sheetLayer = layer
+        card.alpha = 0f; card.scaleX = .85f; card.scaleY = .85f
+        card.post {
+            card.pivotX = when (align) {
+                Gravity.END -> card.width.toFloat()
+                Gravity.START -> 0f
+                else -> card.width / 2f
+            }
+            card.pivotY = card.height.toFloat()
+            card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(260)
+                .setInterpolator(OvershootInterpolator(0.9f)).start()
+        }
+    }
+
+    private fun showMenu() {
+        val h = FrameLayout(this)
+        menuTop(h)
+        showPopupCard(h, Gravity.END)
+    }
+
+    private fun menuTop(h: FrameLayout) {
+        val fwRow = pmRow("forward", "Maju") { hideSheet(); if (tab.web.canGoForward()) tab.web.goForward() }
+        fwRow.alpha = if (tab.web.canGoForward()) 1f else .4f
+        pmList(h, null, null, listOf(
+            pmRow("share", "Bagikan Halaman") { hideSheet(); shareUrl() },
+            pmRow("star", "Tambah ke…", true) { menuAdd(h) },
+            pmRow("tabs", "Tab", true) { menuTabs(h) },
+            fwRow,
+            pmRow("book", "Bookmark & Riwayat", true) { menuLib(h) },
+            pmRow("organize", "Pengaturan", true) { menuSettings(h) }
+        ))
+    }
+
+    private fun menuAdd(h: FrameLayout) {
+        pmList(h, "Tambah ke…", { menuTop(h) }, listOf(
+            pmRow("star", "Favorit") { addTo("fav") },
+            pmRow("book", "Bookmark") { addTo("bm") },
+            pmRow("glasses", "Daftar Bacaan") { addTo("rl") }
+        ))
+    }
+
+    private fun menuTabs(h: FrameLayout) {
+        pmList(h, "Tab", { menuTop(h) }, listOf(
+            pmRow("plus", "Tab Baru") { hideSheet(); newTab(null) },
+            pmRow("tabs", "Lihat Semua Tab") { hideSheet(); showOverview() },
+            pmRow("close", "Tutup Tab Ini") { hideSheet(); closeTab(cur, null) }
+        ))
+    }
+
+    private fun menuLib(h: FrameLayout) {
+        pmList(h, "Bookmark & Riwayat", { menuTop(h) }, listOf(
+            pmRow("book", "Bookmark") { hideSheet(); openStartIn(1) },
+            pmRow("glasses", "Daftar Bacaan") { hideSheet(); openStartIn(2) },
+            pmRow("clock", "Riwayat") { hideSheet(); openStartIn(3) },
+            pmRow("download", "Unduhan") { hideSheet(); showDownloads() }
+        ))
+    }
+
+    private fun menuSettings(h: FrameLayout) {
+        val t = tab
         val sw = Switch(this).apply {
             isChecked = t.desktop
             setOnCheckedChangeListener { _, on -> setDesktop(t, on) }
         }
-        group(menuRow("desktop", "Minta Situs Desktop", sw))
-        section("Safari")
         val bs = Switch(this).apply {
             isChecked = GlassView.blur
             setOnCheckedChangeListener { _, on -> setBlur(on) }
         }
-        group(
-            menuRow("book", "Bookmark") { hideSheet(); openStartIn(1) },
-            menuRow("clock", "Riwayat") { hideSheet(); openStartIn(3) },
-            menuRow("download", "Unduhan") { hideSheet(); showDownloads() },
-            menuRow("photo", "Ubah Latar Halaman Awal") { hideSheet(); pickBackground() },
-            menuRow(null, "Tampilan Safari", segmented()),
-            menuRow(null, "Blur Latar (lebih berat)", bs),
-            menuRow("trash", "Hapus Riwayat dan Data Situs") { clearData() }
-        )
-
-        val hdr = FrameLayout(this).apply { setPadding(dp(10), dp(8), dp(10), dp(4)) }
-        val x = flatCircle(IconView(this, "close", fg, 0.55f), dp(40), fillCol)
-        x.setOnClickListener { hideSheet() }
-        hdr.addView(x, FrameLayout.LayoutParams(dp(40), dp(40), Gravity.START or Gravity.CENTER_VERTICAL))
-        hdr.addView(TextView(this).apply {
-            text = "Menu"; textSize = 17f; setTextColor(fg); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
-        }, FrameLayout.LayoutParams(MP, dp(40), Gravity.CENTER))
-
-        val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        wrap.addView(hdr)
-        val sv = MaxHeightScrollView(this, (resources.displayMetrics.heightPixels * 0.72f).toInt()).apply {
-            isVerticalScrollBarEnabled = false
-            addView(body)
-        }
-        wrap.addView(sv, LinearLayout.LayoutParams(MP, WC))
-        showSheet(wrap)
+        pmList(h, "Pengaturan", { menuTop(h) }, listOf(
+            pmRow("desktop", "Situs Desktop", false, sw),
+            pmRow(null, "Tampilan", false, segmented()),
+            pmRow(null, "Blur Latar (berat)", false, bs),
+            pmRow("photo", "Ubah Latar Halaman Awal") { hideSheet(); pickBackground() },
+            pmRow("trash", "Hapus Riwayat & Data") { clearData() }
+        ))
     }
 
     private fun setBlur(on: Boolean) {
@@ -1112,7 +1155,7 @@ class MainActivity : Activity() {
         c.addView(row("Minta Situs Desktop", sw))
         c.addView(sep())
         c.addView(row("Muat Ulang") { hideSheet(); t.web.reload() })
-        showSheet(c)
+        showPopupCard(c, Gravity.CENTER_HORIZONTAL, dp(280))
     }
 
     private fun setDesktop(t: Tab, on: Boolean) {
@@ -1218,7 +1261,7 @@ class MainActivity : Activity() {
             hideSheet()
             try { startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { }
         })
-        showSheet(c)
+        showPopupCard(c, Gravity.CENTER_HORIZONTAL, dp(320))
     }
 
     private fun openDownload(dm: DownloadManager, id: Long) {
