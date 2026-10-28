@@ -70,6 +70,7 @@ class MainActivity : Activity() {
     private var tabSearchOn = false
     private var tabSearchHolder: FrameLayout? = null
     private var touchScale = 1.0f
+    private var ovLight = false
     private val touchMatrix = Matrix()
     private var barH = 52
     private var barLift = 0
@@ -784,6 +785,12 @@ class MainActivity : Activity() {
         catch (e: Exception) { toast("Tidak ada aplikasi galeri") }
     }
 
+    private fun syncStatusIcons() {
+        val on = tabs.isNotEmpty() && tab.start
+        WindowCompat.getInsetsController(window, root).isAppearanceLightStatusBars =
+            !(dark || (on && (style == 27 || store.hasBg())))
+    }
+
     private fun openStartIn(idx: Int) {
         startIdx = idx
         newTab(null)
@@ -967,6 +974,24 @@ class MainActivity : Activity() {
         val ovBg = if (dark) 0xFF1C1C1E.toInt() else 0xFFE5E5EA.toInt()
         val ov = FrameLayout(this)
         ov.setBackgroundColor(ovBg)
+        val wp = store.loadBg()
+        ovLight = wp != null || style == 27
+        if (wp != null) {
+            val sw = 360
+            val sm = Bitmap.createScaledBitmap(wp, sw, maxOf(2, wp.height * sw / wp.width), true)
+            val wiv = ImageView(this).apply {
+                setImageBitmap(sm); scaleType = ImageView.ScaleType.CENTER_CROP
+                if (Build.VERSION.SDK_INT >= 31) setRenderEffect(RenderEffect.createBlurEffect(14f, 14f, Shader.TileMode.CLAMP))
+            }
+            ov.addView(wiv, MP, MP)
+            ov.addView(View(this).apply { setBackgroundColor(0x59000000) }, MP, MP)
+        } else if (style == 27) {
+            ov.background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF3E7358.toInt(), 0xFF24503B.toInt(), 0xFF12281E.toInt())
+            )
+        }
+        WindowCompat.getInsetsController(window, root).isAppearanceLightStatusBars = !(dark || ovLight)
         val scroll = ScrollView(this).apply {
             isVerticalScrollBarEnabled = false; clipToPadding = false
             setPadding(dp(14), topInset + dp(70), dp(14), dp(120) + navInset)
@@ -1029,6 +1054,7 @@ class MainActivity : Activity() {
 
     private fun hideOverview() {
         val ov = overlay ?: return
+        syncStatusIcons()
         imm().hideSoftInputFromWindow(ov.windowToken, 0)
         overlay = null; gridCol = null; countLabel = null; tabSearchHolder = null
         ov.animate().alpha(0f).scaleX(1.08f).scaleY(1.08f).setDuration(240)
@@ -1070,7 +1096,7 @@ class MainActivity : Activity() {
 
     private fun groupHeader(title: String, n: Int) = TextView(this).apply {
         text = title.replaceFirstChar { it.uppercase() } + " · $n tab"
-        textSize = 15f; setTextColor(fg); typeface = Typeface.DEFAULT_BOLD
+        textSize = 15f; setTextColor(if (ovLight) Color.WHITE else fg); typeface = Typeface.DEFAULT_BOLD
         setPadding(dp(4), dp(6), 0, dp(8))
     }
 
@@ -1207,10 +1233,10 @@ class MainActivity : Activity() {
         val head = FrameLayout(this)
         head.addView(TextView(this).apply {
             text = t.title.ifBlank { Uri.parse(t.url).host ?: "Tab Baru" }
-            textSize = 13f; setTextColor(fg); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+            textSize = 13f; setTextColor(if (ovLight) Color.WHITE else fg); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
             setPadding(dp(4), 0, dp(26), 0)
         }, FrameLayout.LayoutParams(MP, WC, Gravity.CENTER_VERTICAL))
-        head.addView(IconView(this, "close", if (dark) 0xFFAAAAAA.toInt() else 0xFF666666.toInt(), 0.7f).apply {
+        head.addView(IconView(this, "close", if (ovLight) 0xFFE6E6E6.toInt() else if (dark) 0xFFAAAAAA.toInt() else 0xFF666666.toInt(), 0.7f).apply {
             setOnClickListener { closeTab(j, box) }
         }, FrameLayout.LayoutParams(dp(24), dp(24), Gravity.END or Gravity.CENTER_VERTICAL))
         box.addView(head, LinearLayout.LayoutParams(MP, dp(28)))

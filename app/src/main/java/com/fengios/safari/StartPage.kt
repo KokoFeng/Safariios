@@ -14,6 +14,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -57,9 +58,19 @@ class StartPage(
     private lateinit var col: LinearLayout
     private lateinit var seg: LinearLayout
     private var histHolder: LinearLayout? = null
+    private lateinit var rootView: FrameLayout
+    private var layer: FrameLayout? = null
+    private var selecting = false
+    private val selected = mutableSetOf<Long>()
+    private var selBar: TextView? = null
+    private val popDark get() = photo || dark
+    private val popFg get() = if (popDark) Color.WHITE else Color.BLACK
+    private val popSub get() = if (popDark) 0xFFB5B5BA.toInt() else 0xFF6C6C70.toInt()
+    private val red = 0xFFFF6961.toInt()
 
     fun build(): View {
         val root = FrameLayout(ctx)
+        rootView = root
         bgLayer = FrameLayout(ctx)
         if (bgBmp != null) {
             bgLayer.addView(ImageView(ctx).apply {
@@ -114,6 +125,8 @@ class StartPage(
     }
 
     private fun render() {
+        closeLayer()
+        if (tabIdx != 3 && selecting) { selecting = false; selected.clear(); updateSelBar() }
         col.removeAllViews()
         histHolder = null
         when (tabIdx) {
@@ -145,10 +158,150 @@ class StartPage(
         text = t; textSize = 15f; setTextColor(sub); setPadding(dp(4), dp(6), dp(4), dp(12))
     }
 
+    // ---------------------------------------------------------- popup kaca (menggantikan AlertDialog)
+    private fun closeLayer() {
+        layer?.let { rootView.removeView(it) }
+        layer = null
+    }
+
+    private fun openLayer(content: View, width: Int, gravity: Int, top: Int, dim: Boolean) {
+        closeLayer()
+        val l = FrameLayout(ctx)
+        l.setBackgroundColor(if (dim) 0x55000000 else 0)
+        l.setOnClickListener { closeLayer() }
+        val glassBg = if (photo) 0xFF24503B.toInt() else if (dark) Color.BLACK else 0xFFF2F2F7.toInt()
+        val card = GlassView(ctx, bgLayer, dp(22).toFloat(), 3, popDark, glassBg, true)
+        card.isClickable = true
+        card.addView(content, FrameLayout.LayoutParams(MP, WC))
+        l.addView(card, FrameLayout.LayoutParams(width, WC, gravity).apply { setMargins(dp(16), top, dp(16), 0) })
+        rootView.addView(l, MP, MP)
+        layer = l
+        card.alpha = 0f; card.scaleX = .9f; card.scaleY = .9f
+        card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(200).start()
+    }
+
+    private fun popLine() = View(ctx).apply {
+        setBackgroundColor(if (popDark) 0x26FFFFFF else 0x22000000)
+    }
+
+    private fun popRow(icon: String, label: String, color: Int, onClick: () -> Unit): View {
+        val r = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(18), 0, dp(18), 0); minimumHeight = dp(50)
+        }
+        r.addView(IconView(ctx, icon, color, 0.6f), LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginEnd = dp(14) })
+        r.addView(TextView(ctx).apply { text = label; textSize = 16f; setTextColor(color) })
+        r.setOnClickListener { closeLayer(); onClick() }
+        return r
+    }
+
+    private fun popOption(label: String, color: Int, onClick: () -> Unit) = TextView(ctx).apply {
+        text = label; textSize = 16f; setTextColor(color); gravity = Gravity.CENTER
+        minimumHeight = dp(50)
+        setOnClickListener { closeLayer(); onClick() }
+    }
+
     private fun confirm(title: String, msg: String, onYes: () -> Unit) {
-        AlertDialog.Builder(ctx).setTitle(title).setMessage(msg)
-            .setPositiveButton("Hapus") { _, _ -> onYes() }
-            .setNegativeButton("Batal", null).show()
+        val c = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        c.addView(TextView(ctx).apply {
+            text = title; textSize = 17f; setTextColor(popFg); typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER; setPadding(dp(20), dp(20), dp(20), if (msg.isBlank()) dp(18) else dp(4))
+        })
+        if (msg.isNotBlank()) c.addView(TextView(ctx).apply {
+            text = msg; textSize = 14f; setTextColor(popSub); gravity = Gravity.CENTER
+            maxLines = 2; ellipsize = TextUtils.TruncateAt.END
+            setPadding(dp(20), 0, dp(20), dp(18))
+        })
+        c.addView(popLine(), LinearLayout.LayoutParams(MP, 1))
+        val btns = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        btns.addView(popOption("Batal", popFg) {}, LinearLayout.LayoutParams(0, dp(50), 1f))
+        btns.addView(popLine(), LinearLayout.LayoutParams(1, MP))
+        btns.addView(popOption("Hapus", red) { onYes() }, LinearLayout.LayoutParams(0, dp(50), 1f))
+        c.addView(btns)
+        openLayer(c, dp(290), Gravity.CENTER, 0, true)
+    }
+
+    private fun openHistoryMenu() {
+        val c = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(4), 0, dp(4)) }
+        c.addView(popRow("check", "Pilih Situs Web", popFg) { selecting = true; selected.clear(); render() })
+        c.addView(popLine(), LinearLayout.LayoutParams(MP, 1).apply { marginStart = dp(58) })
+        c.addView(popRow("trash", "Hapus Riwayat…", red) { openClearDialog() })
+        openLayer(c, dp(250), Gravity.TOP or Gravity.END, topInset + dp(10) + dp(48) + dp(8), false)
+    }
+
+    private fun startOfDay(daysAgo: Int): Long = Calendar.getInstance().apply {
+        add(Calendar.DAY_OF_YEAR, -daysAgo)
+        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    private fun openClearDialog() {
+        val c = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        c.addView(TextView(ctx).apply {
+            text = "Hapus Riwayat"; textSize = 17f; setTextColor(popFg); typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER; setPadding(dp(20), dp(20), dp(20), dp(4))
+        })
+        c.addView(TextView(ctx).apply {
+            text = "Hapus riwayat penelusuran dari:"; textSize = 14f; setTextColor(popSub); gravity = Gravity.CENTER
+            setPadding(dp(20), 0, dp(20), dp(14))
+        })
+        fun opt(label: String, color: Int, act: () -> Unit) {
+            c.addView(popLine(), LinearLayout.LayoutParams(MP, 1))
+            c.addView(popOption(label, color) { act(); render() })
+        }
+        opt("Satu Jam Terakhir", popFg) { store.clearHistorySince(System.currentTimeMillis() - 3600000L) }
+        opt("Hari Ini", popFg) { store.clearHistorySince(startOfDay(0)) }
+        opt("Hari Ini dan Kemarin", popFg) { store.clearHistorySince(startOfDay(1)) }
+        opt("Semua Riwayat", red) { store.clearHistory() }
+        c.addView(popLine(), LinearLayout.LayoutParams(MP, 1))
+        c.addView(popOption("Batal", popFg) {})
+        openLayer(c, dp(290), Gravity.CENTER, 0, true)
+    }
+
+    // ---------------------------------------------------------- mode pilih (riwayat)
+    private fun paintSel(ind: FrameLayout, on: Boolean) {
+        ind.removeAllViews()
+        ind.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            if (on) setColor(blue) else { setColor(Color.TRANSPARENT); setStroke(dp(2), sub) }
+        }
+        if (on) ind.addView(IconView(ctx, "check", Color.WHITE, 0.62f), FrameLayout.LayoutParams(MP, MP))
+    }
+
+    private fun toggleSel(ts: Long, ind: FrameLayout) {
+        if (!selected.remove(ts)) selected.add(ts)
+        paintSel(ind, selected.contains(ts))
+        updateSelBar()
+    }
+
+    private fun updateSelBar() {
+        val n = selected.size
+        if (!selecting || n == 0) {
+            selBar?.let { rootView.removeView(it) }
+            selBar = null
+            return
+        }
+        val bar = selBar ?: TextView(ctx).apply {
+            textSize = 16f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+            setPadding(dp(26), dp(13), dp(26), dp(13))
+            background = GradientDrawable().apply { cornerRadius = dp(26).toFloat(); setColor(0xFFFF453A.toInt()) }
+            setOnClickListener {
+                selected.toList().forEach { store.removeHistory(it) }
+                endSelect()
+            }
+        }.also {
+            rootView.addView(it, FrameLayout.LayoutParams(WC, WC, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                bottomMargin = dp(130)
+            })
+            selBar = it
+        }
+        bar.text = "Hapus ($n)"
+    }
+
+    private fun endSelect() {
+        selecting = false
+        selected.clear()
+        updateSelBar()
+        render()
     }
 
     private fun iconBox(e: Entry, size: Int, radius: Int): View {
@@ -265,10 +418,15 @@ class StartPage(
     }
 
     // ---------------------------------------------------------- daftar umum
-    private fun rowItem(e: Entry, onRemove: (Entry) -> Unit): View {
+    private fun rowItem(e: Entry, selectable: Boolean, onRemove: (Entry) -> Unit): View {
         val r = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(14), dp(11), dp(14), dp(11))
+        }
+        val ind: FrameLayout? = if (selectable && selecting) FrameLayout(ctx) else null
+        if (ind != null) {
+            paintSel(ind, selected.contains(e.ts))
+            r.addView(ind, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(12) })
         }
         r.addView(iconBox(e, dp(30), dp(8)), LinearLayout.LayoutParams(dp(30), dp(30)))
         val tx = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), 0, 0, 0) }
@@ -280,15 +438,15 @@ class StartPage(
             text = e.u; textSize = 13f; setTextColor(sub); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
         })
         r.addView(tx, LinearLayout.LayoutParams(0, WC, 1f))
-        r.setOnClickListener { onOpen(e.u) }
-        r.setOnLongClickListener {
+        r.setOnClickListener { if (ind != null) toggleSel(e.ts, ind) else onOpen(e.u) }
+        if (ind == null) r.setOnLongClickListener {
             confirm("Hapus item ini?", e.t.ifBlank { e.u }) { onRemove(e) }
             true
         }
         return r
     }
 
-    private fun listBox(items: List<Entry>, onRemove: (Entry) -> Unit): View {
+    private fun listBox(items: List<Entry>, selectable: Boolean, onRemove: (Entry) -> Unit): View {
         val box = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply { cornerRadius = dp(22).toFloat(); setColor(listBg) }
@@ -298,7 +456,7 @@ class StartPage(
                 View(ctx).apply { setBackgroundColor(lineCol) },
                 LinearLayout.LayoutParams(MP, 1).apply { marginStart = dp(56) }
             )
-            box.addView(rowItem(e, onRemove))
+            box.addView(rowItem(e, selectable, onRemove))
         }
         return box
     }
@@ -309,16 +467,14 @@ class StartPage(
         if (items.isEmpty()) {
             col.addView(hint("Belum ada item. Tambahkan lewat menu ⋯ di toolbar."))
         } else {
-            col.addView(listBox(items) { store.remove(key, it.u); render() })
+            col.addView(listBox(items, false) { store.remove(key, it.u); render() })
         }
     }
 
     // ---------------------------------------------------------- riwayat
     private fun historyPage() {
-        col.addView(header("Riwayat", "Hapus…") {
-            confirm("Hapus semua riwayat?", "Seluruh riwayat penelusuran akan dihapus.") {
-                store.clearHistory(); render()
-            }
+        col.addView(header("Riwayat", if (selecting) "Selesai" else "Opsi") {
+            if (selecting) endSelect() else openHistoryMenu()
         })
         val et = EditText(ctx).apply {
             hint = "Cari Riwayat"; setHintTextColor(sub); setTextColor(fg); textSize = 16f
@@ -366,7 +522,7 @@ class StartPage(
                 text = label; textSize = 20f; setTextColor(fg); typeface = Typeface.DEFAULT_BOLD
                 setPadding(dp(4), dp(16), 0, dp(8))
             })
-            h.addView(listBox(items) { store.removeHistory(it.ts); fillHistory() })
+            h.addView(listBox(items, true) { store.removeHistory(it.ts); fillHistory() })
         }
     }
 }

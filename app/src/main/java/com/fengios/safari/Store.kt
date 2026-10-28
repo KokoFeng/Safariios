@@ -52,6 +52,7 @@ class Store(private val ctx: Context) {
     // ---- riwayat
     fun history(): List<Entry> = list("hist")
     fun clearHistory() { p.edit().remove("hist").apply() }
+    fun clearHistorySince(ts: Long) { save("hist", list("hist").filter { it.ts < ts }) }
     fun removeHistory(ts: Long) { save("hist", list("hist").filter { it.ts != ts }) }
 
     private fun visits(): JSONObject =

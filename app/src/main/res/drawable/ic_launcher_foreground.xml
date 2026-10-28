@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- cakram biru -->
+    <path android:pathData="M54,54m-29,0a29,29 0 1,1 58,0a29,29 0 1,1 -58,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="78"
+                android:endY="84"
+                android:startX="30"
+                android:startY="25"
+                android:type="linear">
+                <item android:color="#FF45C4FF" android:offset="0" />
+                <item android:color="#FF0A6BEA" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- garis skala -->
+    <path
+        android:pathData="M54.00,27.60 L54.00,31.40 M56.76,27.74 L56.53,29.93 M59.49,28.18 L59.03,30.33 M62.16,28.89 L61.48,30.98 M64.74,29.88 L63.84,31.89 M67.20,31.14 L65.30,34.43 M69.52,32.64 L68.22,34.42 M71.67,34.38 L70.19,36.02 M73.62,36.33 L71.98,37.81 M75.36,38.48 L73.58,39.78 M76.86,40.80 L73.57,42.70 M78.12,43.26 L76.11,44.16 M79.11,45.84 L77.02,46.52 M79.82,48.51 L77.67,48.97 M80.26,51.24 L78.07,51.47 M80.40,54.00 L76.60,54.00 M80.26,56.76 L78.07,56.53 M79.82,59.49 L77.67,59.03 M79.11,62.16 L77.02,61.48 M78.12,64.74 L76.11,63.84 M76.86,67.20 L73.57,65.30 M75.36,69.52 L73.58,68.22 M73.62,71.67 L71.98,70.19 M71.67,73.62 L70.19,71.98 M69.52,75.36 L68.22,73.58 M67.20,76.86 L65.30,73.57 M64.74,78.12 L63.84,76.11 M62.16,79.11 L61.48,77.02 M59.49,79.82 L59.03,77.67 M56.76,80.26 L56.53,78.07 M54.00,80.40 L54.00,76.60 M51.24,80.26 L51.47,78.07 M48.51,79.82 L48.97,77.67 M45.84,79.11 L46.52,77.02 M43.26,78.12 L44.16,76.11 M40.80,76.86 L42.70,73.57 M38.48,75.36 L39.78,73.58 M36.33,73.62 L37.81,71.98 M34.38,71.67 L36.02,70.19 M32.64,69.52 L34.42,68.22 M31.14,67.20 L34.43,65.30 M29.88,64.74 L31.89,63.84 M28.89,62.16 L30.98,61.48 M28.18,59.49 L30.33,59.03 M27.74,56.76 L29.93,56.53 M27.60,54.00 L31.40,54.00 M27.74,51.24 L29.93,51.47 M28.18,48.51 L30.33,48.97 M28.89,45.84 L30.98,46.52 M29.88,43.26 L31.89,44.16 M31.14,40.80 L34.43,42.70 M32.64,38.48 L34.42,39.78 M34.38,36.33 L36.02,37.81 M36.33,34.38 L37.81,36.02 M38.48,32.64 L39.78,34.42 M40.80,31.14 L42.70,34.43 M43.26,29.88 L44.16,31.89 M45.84,28.89 L46.52,30.98 M48.51,28.18 L48.97,30.33 M51.24,27.74 L51.47,29.93"
+        android:strokeColor="#B0F2FF"
+        android:strokeLineCap="round"
+        android:strokeWidth="0.85" />
+
+    <!-- jarum: merah (timur laut) dan putih (barat daya) -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M37.5,70.5 L57.2,56.8 L51.2,50.8 Z" />
+    <path
+        android:fillColor="#FFF4222B"
+        android:pathData="M70.5,37.5 L56.8,57.2 L50.8,51.2 Z" />
+
+    <!-- poros -->
+    <path
+        android:fillColor="#FFE8141C"
+        android:pathData="M54,54m-4.3,0a4.3,4.3 0 1,1 8.6,0a4.3,4.3 0 1,1 -8.6,0" />
+    <path
+        android:fillColor="#FFFFA1A8"
+        android:pathData="M54,54m-2.3,0a2.3,2.3 0 1,1 4.6,0a2.3,2.3 0 1,1 -4.6,0" />
+</vector>
