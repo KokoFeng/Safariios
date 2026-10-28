@@ -2,6 +2,9 @@ package com.fengios.safari
 
 import android.content.Context
 import android.graphics.*
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
+import android.widget.ScrollView
 import android.os.Build
 import android.view.View
 import android.view.ViewOutlineProvider
@@ -70,6 +73,51 @@ class IconView(ctx: Context, var kind: String, var tint: Int = Color.BLACK, var 
                 p.strokeWidth = 2.4f
                 c.drawLine(12f, 4.5f, 12f, 19.5f, p); c.drawLine(4.5f, 12f, 19.5f, 12f, p)
             }
+            "search" -> {
+                c.drawCircle(10.5f, 10.5f, 6.5f, p); c.drawLine(15.4f, 15.4f, 20f, 20f, p)
+            }
+            "organize" -> {
+                p.strokeWidth = 2.3f
+                c.drawLine(4f, 7f, 20f, 7f, p); c.drawLine(7f, 12f, 17f, 12f, p); c.drawLine(10f, 17f, 14f, 17f, p)
+            }
+            "check" -> {
+                p.strokeWidth = 2.8f
+                c.drawPath(Path().apply { moveTo(5f, 12.5f); lineTo(10f, 17.5f); lineTo(19f, 7f) }, p)
+            }
+            "pagemenu" -> {
+                c.drawRoundRect(RectF(4f, 4f, 20f, 14f), 2.5f, 2.5f, p)
+                c.drawLine(8f, 18f, 16f, 18f, p); c.drawLine(10f, 21.5f, 14f, 21.5f, p)
+            }
+            "star" -> {
+                c.drawPath(Path().apply {
+                    moveTo(12f, 2.5f); lineTo(14.35f, 8.76f); lineTo(21.03f, 9.06f); lineTo(15.8f, 13.24f)
+                    lineTo(17.58f, 19.69f); lineTo(12f, 16f); lineTo(6.42f, 19.69f); lineTo(8.2f, 13.24f)
+                    lineTo(2.97f, 9.06f); lineTo(9.65f, 8.76f); close()
+                }, p)
+            }
+            "download" -> {
+                c.drawPath(Path().apply {
+                    moveTo(12f, 3.5f); lineTo(12f, 15f)
+                    moveTo(7.5f, 10.8f); lineTo(12f, 15.3f); lineTo(16.5f, 10.8f)
+                    moveTo(5f, 19.5f); lineTo(19f, 19.5f)
+                }, p)
+            }
+            "photo" -> {
+                c.drawRoundRect(RectF(3.5f, 5f, 20.5f, 19f), 2.5f, 2.5f, p)
+                c.drawCircle(8.5f, 10f, 1.5f, p)
+                c.drawPath(Path().apply { moveTo(4f, 17f); lineTo(9.5f, 12.5f); lineTo(13f, 15.5f); lineTo(16f, 13f); lineTo(20f, 17f) }, p)
+            }
+            "trash" -> {
+                c.drawPath(Path().apply {
+                    moveTo(4.5f, 7f); lineTo(19.5f, 7f)
+                    moveTo(9.5f, 7f); lineTo(9.5f, 5f); lineTo(14.5f, 5f); lineTo(14.5f, 7f)
+                    moveTo(6.5f, 7f); lineTo(7.5f, 20f); lineTo(16.5f, 20f); lineTo(17.5f, 7f)
+                }, p)
+            }
+            "desktop" -> {
+                c.drawRoundRect(RectF(3.5f, 5f, 20.5f, 16f), 2.2f, 2.2f, p)
+                c.drawLine(12f, 16f, 12f, 20f, p); c.drawLine(8.5f, 20f, 15.5f, 20f, p)
+            }
             "grid" -> {
                 p.style = Paint.Style.FILL
                 for (i in 0..2) for (j in 0..2) {
@@ -111,7 +159,10 @@ class GlassView(
     private val kind: Int, dark: Boolean, var bgColor: Int
 ) : FrameLayout(ctx) {
 
-    companion object { val all = mutableListOf<GlassView>() }
+    companion object {
+        val all = mutableListOf<GlassView>()
+        var blur = false   // blur latar belakang (berat) - default mati
+    }
 
     private val img = ImageView(ctx).apply { scaleType = ImageView.ScaleType.FIT_XY }
     private val tint = View(ctx)
@@ -127,15 +178,29 @@ class GlassView(
     init {
         addView(img, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(tint, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        tint.setBackgroundColor(
-            when (kind) {
-                0 -> if (dark) 0xCC1C1C1E.toInt() else 0xCCF6F6F8.toInt()
-                1 -> if (dark) 0x33383838 else 0x40FFFFFF
-                else -> if (dark) 0xE61C1C1E.toInt() else 0xE6F2F2F7.toInt()
+        if (blur) {
+            tint.setBackgroundColor(
+                when (kind) {
+                    0 -> if (dark) 0xCC1C1C1E.toInt() else 0xCCF6F6F8.toInt()
+                    1 -> if (dark) 0x33383838 else 0x40FFFFFF
+                    else -> if (dark) 0xE61C1C1E.toInt() else 0xE6F2F2F7.toInt()
+                }
+            )
+        } else {
+            // tanpa snapshot latar: hanya isian semi-solid, jauh lebih ringan
+            tint.background = when (kind) {
+                1 -> GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    if (dark) intArrayOf(0xE62F2F31.toInt(), 0xD91C1C1E.toInt())
+                    else intArrayOf(0xEBFFFFFF.toInt(), 0xD9F0F0F4.toInt())
+                )
+                0 -> ColorDrawable(if (dark) 0xF21C1C1E.toInt() else 0xF2F6F6F8.toInt())
+                else -> ColorDrawable(if (dark) 0xF51C1C1E.toInt() else 0xF5F2F2F7.toInt())
             }
-        )
-        if (kind == 1) img.colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.8f) })
-        if (Build.VERSION.SDK_INT >= 31) {
+        }
+        img.visibility = if (blur) View.VISIBLE else View.GONE
+        if (blur && kind == 1) img.colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.8f) })
+        if (blur && Build.VERSION.SDK_INT >= 31) {
             val r = when (kind) { 0 -> 22f; 1 -> 14f; else -> 28f }
             img.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
         }
@@ -176,7 +241,7 @@ class GlassView(
     }
 
     fun refresh() {
-        if (width <= 0 || height <= 0 || !isShown) return
+        if (!blur || width <= 0 || height <= 0 || !isShown) return
         val s = if (kind == 2) 0.07f else 0.1f
         val bw = max(2, (width * s).toInt())
         val bh = max(2, (height * s).toInt())
@@ -196,5 +261,12 @@ class GlassView(
         try { source.draw(cv) } catch (e: Throwable) { }
         cv.restore()
         img.invalidate()
+    }
+}
+
+/** ScrollView dengan tinggi maksimum. */
+class MaxHeightScrollView(ctx: Context, private val maxH: Int) : ScrollView(ctx) {
+    override fun onMeasure(w: Int, h: Int) {
+        super.onMeasure(w, View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST))
     }
 }

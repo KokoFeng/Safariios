@@ -26,7 +26,8 @@ class StartPage(
     private val topInset: Int,
     private val onOpen: (String) -> Unit,
     private val onPickBg: () -> Unit,
-    private val onResetBg: () -> Unit
+    private val onResetBg: () -> Unit,
+    private val initialTab: Int = 0
 ) {
     private val MP = ViewGroup.LayoutParams.MATCH_PARENT
     private val WC = ViewGroup.LayoutParams.WRAP_CONTENT
@@ -48,7 +49,7 @@ class StartPage(
     private val listBg = if (photo) 0x59000000 else cardBg
     private val lineCol = if (photo || dark) 0x22FFFFFF else 0x22000000
 
-    private var tabIdx = 0
+    private var tabIdx = initialTab
     private var showAll = false
     private var query = ""
     private lateinit var bgLayer: FrameLayout
