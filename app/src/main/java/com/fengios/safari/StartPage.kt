@@ -134,8 +134,8 @@ class StartPage(
         histHolder = null
         when (tabIdx) {
             0 -> favPage()
-            1 -> listPage("Bookmark", "bm")
-            2 -> listPage("Daftar Bacaan", "rl")
+            1 -> listPage(L.t("Bookmarks"), "bm")
+            2 -> listPage(L.t("Reading List"), "rl")
             else -> historyPage()
         }
         for (i in 0 until seg.childCount) seg.getChildAt(i).background = if (i == tabIdx) highlight() else null
@@ -217,28 +217,28 @@ class StartPage(
         })
         c.addView(popLine(), LinearLayout.LayoutParams(MP, 1))
         val btns = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        btns.addView(popOption("Batal", popFg) {}, LinearLayout.LayoutParams(0, dp(50), 1f))
+        btns.addView(popOption(L.t("Cancel"), popFg) {}, LinearLayout.LayoutParams(0, dp(50), 1f))
         btns.addView(popLine(), LinearLayout.LayoutParams(1, MP))
-        btns.addView(popOption("Hapus", red) { onYes() }, LinearLayout.LayoutParams(0, dp(50), 1f))
+        btns.addView(popOption(L.t("Delete"), red) { onYes() }, LinearLayout.LayoutParams(0, dp(50), 1f))
         c.addView(btns)
         openLayer(c, dp(290), Gravity.CENTER, 0, true)
     }
 
     private fun openEditMenu() {
         val c = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(4), 0, dp(4)) }
-        c.addView(popRow("photo", "Ubah Latar Belakang", popFg) { onPickBg() })
+        c.addView(popRow("photo", L.t("Change Background"), popFg) { onPickBg() })
         if (store.hasBg()) {
             c.addView(popLine(), LinearLayout.LayoutParams(MP, 1).apply { marginStart = dp(58) })
-            c.addView(popRow("trash", "Reset ke Bawaan", red) { onResetBg() })
+            c.addView(popRow("trash", L.t("Reset to Default"), red) { onResetBg() })
         }
         openLayer(c, dp(270), Gravity.CENTER, 0, true)
     }
 
     private fun openHistoryMenu() {
         val c = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(4), 0, dp(4)) }
-        c.addView(popRow("check", "Pilih Situs Web", popFg) { selecting = true; selected.clear(); render() })
+        c.addView(popRow("check", L.t("Select Websites"), popFg) { selecting = true; selected.clear(); render() })
         c.addView(popLine(), LinearLayout.LayoutParams(MP, 1).apply { marginStart = dp(58) })
-        c.addView(popRow("trash", "Hapus Riwayat…", red) { openClearDialog() })
+        c.addView(popRow("trash", L.t("Clear History…"), red) { openClearDialog() })
         openLayer(c, dp(250), Gravity.TOP or Gravity.END, topInset + dp(10) + dp(48) + dp(8), false)
     }
 
@@ -250,23 +250,23 @@ class StartPage(
     private fun openClearDialog() {
         val c = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         c.addView(TextView(ctx).apply {
-            text = "Hapus Riwayat"; textSize = 17f; setTextColor(popFg); typeface = Typeface.DEFAULT_BOLD
+            text = L.t("Clear History"); textSize = 17f; setTextColor(popFg); typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER; setPadding(dp(20), dp(20), dp(20), dp(4))
         })
         c.addView(TextView(ctx).apply {
-            text = "Hapus riwayat penelusuran dari:"; textSize = 14f; setTextColor(popSub); gravity = Gravity.CENTER
+            text = L.t("Clear browsing history from:"); textSize = 14f; setTextColor(popSub); gravity = Gravity.CENTER
             setPadding(dp(20), 0, dp(20), dp(14))
         })
         fun opt(label: String, color: Int, act: () -> Unit) {
             c.addView(popLine(), LinearLayout.LayoutParams(MP, 1))
             c.addView(popOption(label, color) { act(); render() })
         }
-        opt("Satu Jam Terakhir", popFg) { store.clearHistorySince(System.currentTimeMillis() - 3600000L) }
-        opt("Hari Ini", popFg) { store.clearHistorySince(startOfDay(0)) }
-        opt("Hari Ini dan Kemarin", popFg) { store.clearHistorySince(startOfDay(1)) }
-        opt("Semua Riwayat", red) { store.clearHistory() }
+        opt(L.t("The Last Hour"), popFg) { store.clearHistorySince(System.currentTimeMillis() - 3600000L) }
+        opt(L.t("Today"), popFg) { store.clearHistorySince(startOfDay(0)) }
+        opt(L.t("Today and Yesterday"), popFg) { store.clearHistorySince(startOfDay(1)) }
+        opt(L.t("All History"), red) { store.clearHistory() }
         c.addView(popLine(), LinearLayout.LayoutParams(MP, 1))
-        c.addView(popOption("Batal", popFg) {})
+        c.addView(popOption(L.t("Cancel"), popFg) {})
         openLayer(c, dp(290), Gravity.CENTER, 0, true)
     }
 
@@ -307,7 +307,7 @@ class StartPage(
             })
             selBar = it
         }
-        bar.text = "Hapus ($n)"
+        bar.text = L.f("Delete (%d)", n)
     }
 
     private fun endSelect() {
@@ -356,11 +356,11 @@ class StartPage(
     // ---------------------------------------------------------- halaman Favorit
     private fun favPage() {
         val favs = store.favorites()
-        col.addView(header("Favorit", if (favs.size > 8) (if (showAll) "Sembunyikan" else "Tampilkan Semua ›") else null) {
+        col.addView(header(L.t("Favorites"), if (favs.size > 8) (if (showAll) L.t("Show Less") else L.t("Show All ›")) else null) {
             showAll = !showAll; render()
         })
         if (favs.isEmpty()) {
-            col.addView(hint("Situs yang sering Anda buka akan muncul di sini."))
+            col.addView(hint(L.t("Sites you visit often will appear here.")))
         } else {
             val shown = if (showAll) favs else favs.take(8)
             for (chunk in shown.chunked(4)) {
@@ -373,8 +373,8 @@ class StartPage(
             }
         }
         val rl = store.list("rl")
-        col.addView(header("Daftar Bacaan", if (rl.size > 3) "Tampilkan Semua ›" else null) { tabIdx = 2; render() })
-        if (rl.isEmpty()) col.addView(hint("Tambahkan halaman lewat menu ⋯ → Tambah ke Daftar Bacaan."))
+        col.addView(header(L.t("Reading List"), if (rl.size > 3) L.t("Show All ›") else null) { tabIdx = 2; render() })
+        if (rl.isEmpty()) col.addView(hint(L.t("Add pages from the ⋯ menu → Add to… → Reading List.")))
         for (e in rl.take(3)) {
             col.addView(readCard(e), LinearLayout.LayoutParams(MP, WC).apply { bottomMargin = dp(10) })
         }
@@ -399,7 +399,7 @@ class StartPage(
         }, LinearLayout.LayoutParams(MP, WC))
         v.setOnClickListener { onOpen(e.u) }
         v.setOnLongClickListener {
-            confirm("Hapus dari Favorit?", e.t.ifBlank { store.host(e.u) }) { store.removeFavorite(e.u); render() }
+            confirm(L.t("Remove from Favorites?"), e.t.ifBlank { store.host(e.u) }) { store.removeFavorite(e.u); render() }
             true
         }
         return v
@@ -423,7 +423,7 @@ class StartPage(
         r.addView(tx, LinearLayout.LayoutParams(0, WC, 1f))
         r.setOnClickListener { onOpen(e.u) }
         r.setOnLongClickListener {
-            confirm("Hapus dari Daftar Bacaan?", e.t) { store.remove("rl", e.u); render() }
+            confirm(L.t("Remove from Reading List?"), e.t) { store.remove("rl", e.u); render() }
             true
         }
         return r
@@ -452,7 +452,7 @@ class StartPage(
         r.addView(tx, LinearLayout.LayoutParams(0, WC, 1f))
         r.setOnClickListener { if (ind != null) toggleSel(e.ts, ind) else onOpen(e.u) }
         if (ind == null) r.setOnLongClickListener {
-            confirm("Hapus item ini?", e.t.ifBlank { e.u }) { onRemove(e) }
+            confirm(L.t("Delete this item?"), e.t.ifBlank { e.u }) { onRemove(e) }
             true
         }
         return r
@@ -477,7 +477,7 @@ class StartPage(
         col.addView(header(title))
         val items = store.list(key)
         if (items.isEmpty()) {
-            col.addView(hint("Belum ada item. Tambahkan lewat menu ⋯ di toolbar."))
+            col.addView(hint(L.t("No items yet. Add them from the ⋯ menu.")))
         } else {
             col.addView(listBox(items, false) { store.remove(key, it.u); render() })
         }
@@ -485,11 +485,11 @@ class StartPage(
 
     // ---------------------------------------------------------- riwayat
     private fun historyPage() {
-        col.addView(header("Riwayat", if (selecting) "Selesai" else "Opsi") {
+        col.addView(header(L.t("History"), if (selecting) L.t("Done") else L.t("Options")) {
             if (selecting) endSelect() else openHistoryMenu()
         })
         val et = EditText(ctx).apply {
-            hint = "Cari Riwayat"; setHintTextColor(sub); setTextColor(fg); textSize = 16f
+            hint = L.t("Search History"); setHintTextColor(sub); setTextColor(fg); textSize = 16f
             setSingleLine(true)
             setPadding(dp(14), dp(10), dp(14), dp(10))
             background = GradientDrawable().apply {
@@ -515,19 +515,19 @@ class StartPage(
             .filter { query.isBlank() || it.t.contains(query, true) || it.u.contains(query, true) }
             .take(150)
         if (all.isEmpty()) {
-            h.addView(hint(if (query.isBlank()) "Belum ada riwayat." else "Tidak ada hasil."))
+            h.addView(hint(if (query.isBlank()) L.t("No history yet.") else L.t("No results.")))
             return
         }
         val dayFmt = SimpleDateFormat("yyyyMMdd", Locale.US)
-        val labelFmt = SimpleDateFormat("EEEE, d MMMM", Locale("id", "ID"))
+        val labelFmt = SimpleDateFormat("EEEE, d MMMM", L.locale())
         val today = dayFmt.format(Date())
         val yest = dayFmt.format(Date(System.currentTimeMillis() - 86400000L))
         val groups = LinkedHashMap<String, MutableList<Entry>>()
         for (e in all) groups.getOrPut(dayFmt.format(Date(e.ts))) { mutableListOf() }.add(e)
         for ((k, items) in groups) {
             val label = when (k) {
-                today -> "Hari Ini"
-                yest -> "Kemarin"
+                today -> L.t("Today")
+                yest -> L.t("Yesterday")
                 else -> labelFmt.format(Date(items[0].ts))
             }
             h.addView(TextView(ctx).apply {

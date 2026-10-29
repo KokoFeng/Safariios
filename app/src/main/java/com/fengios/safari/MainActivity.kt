@@ -132,6 +132,7 @@ class MainActivity : Activity() {
     // ------------------------------------------------------------ lifecycle
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        L.lang = getSharedPreferences("safari", MODE_PRIVATE).getString("lang", "en") ?: "en"
         if (!DevInfo.valid()) { tamperExit(); return }
         prefs = getSharedPreferences("safari", MODE_PRIVATE)
         store = Store(this)
@@ -208,8 +209,8 @@ class MainActivity : Activity() {
         } else if (req == 78) {
             val uri = data?.data
             if (res == RESULT_OK && uri != null) {
-                if (store.saveBg(uri)) { syncStart(); toast("Latar belakang diperbarui") }
-                else toast("Gagal memuat foto")
+                if (store.saveBg(uri)) { syncStart(); toast(L.t("Background updated")) }
+                else toast(L.t("Couldn't load photo"))
             }
         } else super.onActivityResult(req, res, data)
     }
@@ -296,7 +297,7 @@ class MainActivity : Activity() {
 
         b.edit = EditText(this).apply {
             background = null; textSize = 16f; setTextColor(fg); setHintTextColor(0x88888888.toInt())
-            hint = "Telusuri atau masukkan nama situs web"
+            hint = L.t("Search or enter website name")
             setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             imeOptions = EditorInfo.IME_ACTION_GO
@@ -327,7 +328,7 @@ class MainActivity : Activity() {
         pill.addView(b.reload, FrameLayout.LayoutParams(dp(46), MP, Gravity.END))
 
         b.cancel = TextView(this).apply {
-            text = "Batal"; textSize = 16f; setTextColor(blue); gravity = Gravity.CENTER
+            text = L.t("Cancel"); textSize = 16f; setTextColor(blue); gravity = Gravity.CENTER
             visibility = View.GONE
             setOnClickListener { endEdit() }
         }
@@ -481,7 +482,7 @@ class MainActivity : Activity() {
         if (tabs.isEmpty()) return
         val t = tab
         val u = t.web.url ?: t.url
-        b.host.text = if (u.isBlank() || u == "about:blank") "Telusuri atau masukkan nama situs web"
+        b.host.text = if (u.isBlank() || u == "about:blank") L.t("Search or enter website name")
         else (Uri.parse(u).host?.removePrefix("www.") ?: u)
         b.btn["back"]?.alpha = if (t.web.canGoBack() || (!t.start && t.fromStart)) 1f else .3f
         b.btn["forward"]?.alpha = if (t.web.canGoForward()) 1f else .3f
@@ -516,10 +517,10 @@ class MainActivity : Activity() {
     private fun tamperExit() {
         blocked = true
         android.app.AlertDialog.Builder(this)
-            .setTitle("Aplikasi telah dimodifikasi")
-            .setMessage("Aplikasi ini telah diubah dan tidak dapat dijalankan. Gunakan versi asli dari pengembangnya.")
+            .setTitle(L.t("App has been modified"))
+            .setMessage(L.t("This app has been altered and cannot run. Please use the original version from its developer."))
             .setCancelable(false)
-            .setPositiveButton("Tutup") { _, _ -> finishAffinity() }
+            .setPositiveButton(L.t("Close")) { _, _ -> finishAffinity() }
             .show()
     }
 
@@ -559,7 +560,7 @@ class MainActivity : Activity() {
         return box
     }
 
-    private fun barHeightRow(): View = sliderRow("Tinggi Bar", " dp", 40, 64, barH) { v ->
+    private fun barHeightRow(): View = sliderRow(L.t("Bar Height"), " dp", 40, 64, barH) { v ->
         barH = v
         prefs.edit().putInt("bar_h", v).apply()
         buildUi()
@@ -567,7 +568,7 @@ class MainActivity : Activity() {
     }
 
     private fun barLiftRow(): View = sliderRow(
-        if (style == 27) "Jarak dari Bawah" else "Jarak dari Bawah (iOS 27)", " dp", -8, 48, barLift, style == 27
+        if (style == 27) L.t("Distance from Bottom") else L.t("Distance from Bottom (iOS 27)"), " dp", -8, 48, barLift, style == 27
     ) { v ->
         barLift = v
         prefs.edit().putInt("bar_lift", v).apply()
@@ -579,7 +580,7 @@ class MainActivity : Activity() {
     private fun touchRow(): View {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(10), dp(16), dp(8)) }
         val label = TextView(this).apply { textSize = 16f; setTextColor(fg) }
-        fun upd(p: Int) { label.text = "Sensitivitas Sentuhan  $p%" }
+        fun upd(p: Int) { label.text = L.f("Touch Sensitivity  %d%%", p) }
         val start = (touchScale * 100).toInt().coerceIn(40, 120)
         upd(start)
         val sb = SeekBar(this).apply {
@@ -600,7 +601,7 @@ class MainActivity : Activity() {
         box.addView(label)
         box.addView(sb, LinearLayout.LayoutParams(MP, WC))
         box.addView(TextView(this).apply {
-            text = "100% = paling halus (bawaan). Menurunkan nilai meredam sentuhan, tapi scroll bisa terasa kurang mulus."
+            text = L.t("100% = smoothest (default). Lowering it dampens touch, but scrolling may feel less smooth.")
             textSize = 12f; setTextColor(0xFF8E8E93.toInt())
         })
         return box
@@ -666,7 +667,7 @@ class MainActivity : Activity() {
         Thread {
             try {
                 val conn = java.net.URL(
-                    "https://suggestqueries.google.com/complete/search?client=firefox&hl=id&q=" + Uri.encode(q)
+                    "https://suggestqueries.google.com/complete/search?client=firefox&hl=" + L.lang + "&q=" + Uri.encode(q)
                 ).openConnection() as java.net.HttpURLConnection
                 conn.connectTimeout = 4000
                 conn.readTimeout = 4000
@@ -719,11 +720,11 @@ class MainActivity : Activity() {
         val local = if (qq.isEmpty()) hist.distinctBy { it.u }.take(6)
         else hist.filter { it.t.contains(qq, true) || it.u.contains(qq, true) }.distinctBy { it.u }.take(3)
         if (local.isNotEmpty()) {
-            head(if (qq.isEmpty()) "Riwayat Terbaru" else "Riwayat")
+            head(if (qq.isEmpty()) L.t("Recent History") else L.t("History"))
             for (e in local) col.addView(histSug(e))
         }
         if (qq.isNotEmpty()) {
-            head("Saran Google")
+            head(L.t("Google Suggestions"))
             col.addView(sugRow(qq, qq, true))
             for (s in google) if (!s.equals(qq, true)) col.addView(sugRow(s, qq, false))
         }
@@ -796,8 +797,8 @@ class MainActivity : Activity() {
 
     private fun pickBackground() {
         val i = Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE)
-        try { startActivityForResult(Intent.createChooser(i, "Pilih foto latar belakang"), 78) }
-        catch (e: Exception) { toast("Tidak ada aplikasi galeri") }
+        try { startActivityForResult(Intent.createChooser(i, L.t("Choose a background photo")), 78) }
+        catch (e: Exception) { toast(L.t("No gallery app found")) }
     }
 
     private fun syncStatusIcons() {
@@ -820,7 +821,7 @@ class MainActivity : Activity() {
     private fun addTo(kind: String) {
         hideSheet()
         val t = tab
-        if (t.start) { toast("Buka sebuah halaman dulu"); return }
+        if (t.start) { toast(L.t("Open a page first")); return }
         val u = t.web.url ?: t.url
         val ti = t.web.title ?: t.title
         when (kind) {
@@ -829,9 +830,9 @@ class MainActivity : Activity() {
             else -> store.add("rl", u, ti)
         }
         toast(when (kind) {
-            "fav" -> "Ditambahkan ke Favorit"
-            "bm" -> "Bookmark ditambahkan"
-            else -> "Ditambahkan ke Daftar Bacaan"
+            "fav" -> L.t("Added to Favorites")
+            "bm" -> L.t("Bookmark added")
+            else -> L.t("Added to Reading List")
         })
     }
 
@@ -1051,7 +1052,7 @@ class MainActivity : Activity() {
         val plus = glassCircle(IconView(this, "plus", fg, 0.55f), dp(52), scroll)
         plus.setOnClickListener { newTab(null); hideOverview() }
         val cnt = TextView(this).apply {
-            text = "${tabs.size} Tab"; textSize = 15f; setTextColor(fg); gravity = Gravity.CENTER
+            text = L.tabs(tabs.size); textSize = 15f; setTextColor(fg); gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
         }
         countLabel = cnt
@@ -1090,7 +1091,7 @@ class MainActivity : Activity() {
         hold.removeAllViews()
         if (tabSearchOn) {
             val et = EditText(this).apply {
-                hint = "Cari Tab"; textSize = 16f; setTextColor(fg); setHintTextColor(0x88888888.toInt())
+                hint = L.t("Search Tabs"); textSize = 16f; setTextColor(fg); setHintTextColor(0x88888888.toInt())
                 setSingleLine(true)
                 setPadding(dp(14), dp(10), dp(14), dp(10))
                 background = GradientDrawable().apply {
@@ -1118,7 +1119,7 @@ class MainActivity : Activity() {
     }
 
     private fun groupHeader(title: String, n: Int) = TextView(this).apply {
-        text = title.replaceFirstChar { it.uppercase() } + " · $n tab"
+        text = title.replaceFirstChar { it.uppercase() } + " · " + L.tabsLower(n)
         textSize = 15f; setTextColor(if (ovLight) Color.WHITE else fg); typeface = Typeface.DEFAULT_BOLD
         setPadding(dp(4), dp(6), 0, dp(8))
     }
@@ -1145,7 +1146,7 @@ class MainActivity : Activity() {
         }
         if (idx.isEmpty()) {
             col.addView(TextView(this).apply {
-                text = "Tidak ada tab"; textSize = 15f; setTextColor(0xFF8E8E93.toInt()); setPadding(dp(4), dp(20), 0, 0)
+                text = L.t("No tabs"); textSize = 15f; setTextColor(0xFF8E8E93.toInt()); setPadding(dp(4), dp(20), 0, 0)
             })
             return
         }
@@ -1170,7 +1171,7 @@ class MainActivity : Activity() {
             col.addView(groupHeader(hostKey, l.size))
             addRows(col, l, w)
         }
-        if (groups.isNotEmpty() && singles.isNotEmpty()) col.addView(groupHeader("Tab Lainnya", singles.size))
+        if (groups.isNotEmpty() && singles.isNotEmpty()) col.addView(groupHeader(L.t("Other Tabs"), singles.size))
         addRows(col, singles, w)
     }
 
@@ -1192,10 +1193,10 @@ class MainActivity : Activity() {
     private fun showOrganizePopup(ov: FrameLayout) {
         val c = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(16), dp(18), dp(8)) }
         c.addView(TextView(this).apply {
-            text = "Atur Tab"; textSize = 16f; setTextColor(fg); typeface = Typeface.DEFAULT_BOLD
+            text = L.t("Organize Tabs"); textSize = 16f; setTextColor(fg); typeface = Typeface.DEFAULT_BOLD
         })
         c.addView(TextView(this).apply {
-            text = if (organizeAuto) "Otomatis Buat Topik" else "Jangan Pernah"
+            text = if (organizeAuto) L.t("Automatically Create Topics") else L.t("Never")
             textSize = 13f; setTextColor(0xFF8E8E93.toInt()); setPadding(0, dp(2), 0, dp(10))
         })
         fun opt(title: String, desc: String?, sel: Boolean, pick: () -> Unit) {
@@ -1221,8 +1222,8 @@ class MainActivity : Activity() {
             (popupLayer.parent as? ViewGroup)?.removeView(popupLayer)
             gridCol?.let { fillGrid(it) }
         }
-        opt("Buat Topik Otomatis", "Tab dari situs yang sama dikelompokkan otomatis menjadi satu topik.", organizeAuto) { choose(true) }
-        opt("Jangan Pernah", null, !organizeAuto) { choose(false) }
+        opt(L.t("Automatically Create Topics"), L.t("Tabs from the same site are grouped into one topic automatically."), organizeAuto) { choose(true) }
+        opt(L.t("Never"), null, !organizeAuto) { choose(false) }
         showPopup(ov, Gravity.START, c)
         popupLayer = ov.getChildAt(ov.childCount - 1)
     }
@@ -1236,15 +1237,15 @@ class MainActivity : Activity() {
                 setOnClickListener { (popupLayer.parent as? ViewGroup)?.removeView(popupLayer); act() }
             })
         }
-        item("Tab Baru", fg) { newTab(null); hideOverview() }
-        item("Tutup Semua Tab", 0xFFFF453A.toInt()) {
+        item(L.t("New Tab"), fg) { newTab(null); hideOverview() }
+        item(L.t("Close All Tabs"), 0xFFFF453A.toInt()) {
             tabs.forEach { (it.web.parent as? ViewGroup)?.removeView(it.web); it.web.destroy() }
             tabs.clear()
             addTab(null)
             cur = 0
             selectTab(0)
             gridCol?.let { fillGrid(it) }
-            countLabel?.text = "1 Tab"
+            countLabel?.text = L.tabs(1)
         }
         showPopup(ov, Gravity.END, c)
         popupLayer = ov.getChildAt(ov.childCount - 1)
@@ -1255,7 +1256,7 @@ class MainActivity : Activity() {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val head = FrameLayout(this)
         head.addView(TextView(this).apply {
-            text = t.title.ifBlank { Uri.parse(t.url).host ?: "Tab Baru" }
+            text = t.title.ifBlank { Uri.parse(t.url).host ?: L.t("New Tab") }
             textSize = 13f; setTextColor(if (ovLight) Color.WHITE else fg); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
             setPadding(dp(4), 0, dp(26), 0)
         }, FrameLayout.LayoutParams(MP, WC, Gravity.CENTER_VERTICAL))
@@ -1294,7 +1295,7 @@ class MainActivity : Activity() {
             cur = cur.coerceIn(0, tabs.size - 1)
             selectTab(cur)
             gridCol?.let { fillGrid(it) }
-            countLabel?.text = "${tabs.size} Tab"
+            countLabel?.text = L.tabs(tabs.size)
         }
         if (v != null) v.animate().scaleX(.8f).scaleY(.8f).alpha(0f).setDuration(180).withEndAction { doIt() }.start()
         else doIt()
@@ -1371,6 +1372,32 @@ class MainActivity : Activity() {
         return seg
     }
 
+    private fun langSegmented(): View {
+        val seg = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = GradientDrawable().apply { cornerRadius = dp(9).toFloat(); setColor(fillCol) }
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+        }
+        for ((code, name) in listOf("en" to "English", "id" to "Indonesia")) {
+            seg.addView(TextView(this).apply {
+                text = name; textSize = 13f; gravity = Gravity.CENTER; setTextColor(fg)
+                setPadding(dp(10), dp(6), dp(10), dp(6))
+                if (code == L.lang) background = GradientDrawable().apply {
+                    cornerRadius = dp(7).toFloat(); setColor(if (dark) 0xFF636366.toInt() else Color.WHITE)
+                }
+                setOnClickListener { if (code != L.lang) setLang(code) }
+            })
+        }
+        return seg
+    }
+
+    private fun setLang(code: String) {
+        L.lang = code
+        prefs.edit().putString("lang", code).apply()
+        hideSheet(false)
+        buildUi()
+    }
+
     private fun setStyle(v: Int) {
         style = v
         prefs.edit().putInt("style", v).apply()
@@ -1411,7 +1438,7 @@ class MainActivity : Activity() {
         h.removeAllViews()
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(6), 0, dp(6)) }
         if (onBack != null) {
-            col.addView(pmRow("back", title ?: "Kembali") { onBack() })
+            col.addView(pmRow("back", title ?: L.t("Back")) { onBack() })
             col.addView(pmSep())
         }
         rows.forEachIndexed { i, r ->
@@ -1459,40 +1486,40 @@ class MainActivity : Activity() {
     }
 
     private fun menuTop(h: FrameLayout) {
-        val fwRow = pmRow("forward", "Maju") { hideSheet(); if (tab.web.canGoForward()) tab.web.goForward() }
+        val fwRow = pmRow("forward", L.t("Forward")) { hideSheet(); if (tab.web.canGoForward()) tab.web.goForward() }
         fwRow.alpha = if (tab.web.canGoForward()) 1f else .4f
         pmList(h, null, null, listOf(
-            pmRow("pagemenu", "Menu Halaman") { hideSheet(); showPageMenu() },
-            pmRow("share", "Bagikan Halaman") { hideSheet(); shareUrl() },
-            pmRow("star", "Tambah ke…", true) { menuAdd(h) },
+            pmRow("pagemenu", L.t("Page Menu")) { hideSheet(); showPageMenu() },
+            pmRow("share", L.t("Share Page")) { hideSheet(); shareUrl() },
+            pmRow("star", L.t("Add to…"), true) { menuAdd(h) },
             pmRow("tabs", "Tab", true) { menuTabs(h) },
             fwRow,
-            pmRow("book", "Bookmark & Riwayat", true) { menuLib(h) },
-            pmRow("organize", "Pengaturan", true) { menuSettings(h) }
+            pmRow("book", L.t("Bookmarks & History"), true) { menuLib(h) },
+            pmRow("organize", L.t("Settings"), true) { menuSettings(h) }
         ))
     }
 
     private fun menuAdd(h: FrameLayout) {
-        pmList(h, "Tambah ke…", { menuTop(h) }, listOf(
-            pmRow("star", "Favorit") { addTo("fav") },
-            pmRow("book", "Bookmark") { addTo("bm") },
-            pmRow("glasses", "Daftar Bacaan") { addTo("rl") }
+        pmList(h, L.t("Add to…"), { menuTop(h) }, listOf(
+            pmRow("star", L.t("Favorites")) { addTo("fav") },
+            pmRow("book", L.t("Bookmark")) { addTo("bm") },
+            pmRow("glasses", L.t("Reading List")) { addTo("rl") }
         ))
     }
 
     private fun menuTabs(h: FrameLayout) {
         pmList(h, "Tab", { menuTop(h) }, listOf(
-            pmRow("plus", "Tab Baru") { hideSheet(); newTab(null) },
-            pmRow("tabs", "Lihat Semua Tab") { hideSheet(); showOverview() },
-            pmRow("close", "Tutup Tab Ini") { hideSheet(); closeTab(cur, null) }
+            pmRow("plus", L.t("New Tab")) { hideSheet(); newTab(null) },
+            pmRow("tabs", L.t("Show All Tabs")) { hideSheet(); showOverview() },
+            pmRow("close", L.t("Close This Tab")) { hideSheet(); closeTab(cur, null) }
         ))
     }
 
     private fun menuLib(h: FrameLayout) {
-        pmList(h, "Bookmark & Riwayat", { menuTop(h) }, listOf(
-            pmRow("book", "Bookmark") { hideSheet(); openStartIn(1) },
-            pmRow("glasses", "Daftar Bacaan") { hideSheet(); openStartIn(2) },
-            pmRow("clock", "Riwayat") { hideSheet(); openStartIn(3) }
+        pmList(h, L.t("Bookmarks & History"), { menuTop(h) }, listOf(
+            pmRow("book", L.t("Bookmarks")) { hideSheet(); openStartIn(1) },
+            pmRow("glasses", L.t("Reading List")) { hideSheet(); openStartIn(2) },
+            pmRow("clock", L.t("History")) { hideSheet(); openStartIn(3) }
         ))
     }
 
@@ -1507,15 +1534,16 @@ class MainActivity : Activity() {
             isChecked = GlassView.blur
             setOnCheckedChangeListener { _, on -> setBlur(on) }
         }
-        pmList(h, "Pengaturan", { menuTop(h) }, listOf(
-            pmRow("desktop", "Situs Desktop", false, sw),
-            pmRow(null, "Tampilan", false, segmented()),
-            pmRow(null, "Blur Latar (berat)", false, bs),
+        pmList(h, L.t("Settings"), { menuTop(h) }, listOf(
+            pmRow("desktop", L.t("Desktop Site"), false, sw),
+            pmRow(null, L.t("Appearance"), false, segmented()),
+            pmRow(null, L.t("Language"), false, langSegmented()),
+            pmRow(null, L.t("Background Blur (heavy)"), false, bs),
             touchRow(),
             barHeightRow(),
             barLiftRow(),
-            pmRow("photo", "Ubah Latar Halaman Awal") { hideSheet(); pickBackground() },
-            pmRow("trash", "Hapus Riwayat & Data") { clearData() },
+            pmRow("photo", L.t("Change Start Page Background")) { hideSheet(); pickBackground() },
+            pmRow("trash", L.t("Clear History & Data")) { clearData() },
             devRow()
         ))
     }
@@ -1552,9 +1580,9 @@ class MainActivity : Activity() {
             isChecked = t.desktop
             setOnCheckedChangeListener { _, on -> setDesktop(t, on) }
         }
-        c.addView(row("Minta Situs Desktop", sw))
+        c.addView(row(L.t("Request Desktop Site"), sw))
         c.addView(sep())
-        c.addView(row("Muat Ulang") { hideSheet(); t.web.reload() })
+        c.addView(row(L.t("Reload")) { hideSheet(); t.web.reload() })
         showPopupCard(c, Gravity.CENTER_HORIZONTAL, dp(280))
     }
 
@@ -1575,7 +1603,7 @@ class MainActivity : Activity() {
         CookieManager.getInstance().removeAllCookies(null)
         tabs.forEach { it.web.clearCache(true); it.web.clearHistory() }
         hideSheet()
-        toast("Riwayat dan data situs dihapus")
+        toast(L.t("History and site data cleared"))
     }
 
     private fun toast(msg: String) {
@@ -1599,7 +1627,7 @@ class MainActivity : Activity() {
     // ------------------------------------------------------------ downloads
     private val dlReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
-            toast("Unduhan selesai • tersimpan di folder Unduhan")
+            toast(L.t("Download finished • saved in the Downloads folder"))
             pollDownloads()
         }
     }
@@ -1615,10 +1643,10 @@ class MainActivity : Activity() {
             req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
             (getSystemService(DOWNLOAD_SERVICE) as DownloadManager).enqueue(req)
-            toast("Mengunduh “$name”")
+            toast(L.f("Downloading “%s”", name))
             pollDownloads()
         } catch (e: Exception) {
-            toast("Unduhan gagal")
+            toast(L.t("Download failed"))
         }
     }
 
@@ -1665,10 +1693,10 @@ class MainActivity : Activity() {
         ok.setOnClickListener { hideSheet() }
         hdr.addView(ok, FrameLayout.LayoutParams(dp(40), dp(40), Gravity.START or Gravity.CENTER_VERTICAL))
         hdr.addView(TextView(this).apply {
-            text = "Unduhan"; textSize = 17f; setTextColor(fg); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+            text = L.t("Downloads"); textSize = 17f; setTextColor(fg); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
         }, FrameLayout.LayoutParams(MP, dp(40), Gravity.CENTER))
         val clear = TextView(this).apply {
-            text = "Hapus"; textSize = 15f; setTextColor(fg); gravity = Gravity.CENTER
+            text = L.t("Clear"); textSize = 15f; setTextColor(fg); gravity = Gravity.CENTER
             setPadding(dp(16), 0, dp(16), 0)
             background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(fillCol) }
             setOnClickListener {
@@ -1694,8 +1722,8 @@ class MainActivity : Activity() {
                 val success = st == DownloadManager.STATUS_SUCCESSFUL
                 val sub = when (st) {
                     DownloadManager.STATUS_SUCCESSFUL -> Formatter.formatShortFileSize(this, total)
-                    DownloadManager.STATUS_FAILED -> "Gagal"
-                    else -> "Mengunduh… " + (if (total > 0) "${soFar * 100 / total}%" else "")
+                    DownloadManager.STATUS_FAILED -> L.t("Failed")
+                    else -> L.t("Downloading… ") + (if (total > 0) "${soFar * 100 / total}%" else "")
                 }
                 val r = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
@@ -1726,7 +1754,7 @@ class MainActivity : Activity() {
             }
         }
         if (n == 0) list.addView(TextView(this).apply {
-            text = "Tidak ada unduhan"; textSize = 15f; setTextColor(0xFF8E8E93.toInt()); setPadding(dp(14), dp(14), dp(14), dp(14))
+            text = L.t("No downloads"); textSize = 15f; setTextColor(0xFF8E8E93.toInt()); setPadding(dp(14), dp(14), dp(14), dp(14))
         })
         val sv = MaxHeightScrollView(this, (resources.displayMetrics.heightPixels * 0.5f).toInt()).apply {
             isVerticalScrollBarEnabled = false
@@ -1745,7 +1773,7 @@ class MainActivity : Activity() {
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         } catch (e: Exception) {
-            toast("Tidak ada aplikasi untuk membuka file ini")
+            toast(L.t("No app can open this file"))
         }
     }
 }
