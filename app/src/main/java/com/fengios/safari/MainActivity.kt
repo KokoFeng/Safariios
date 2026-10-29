@@ -494,6 +494,7 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------------ blur kaca saat diam (mode ringan)
     private val glassRefresh = Runnable { GlassView.refreshIdle() }
+    private val glassRefresh2 = Runnable { GlassView.refreshIdle() }   // penyegaran kedua untuk gambar yang telat muncul
 
     /** Selama scroll blur lama tetap tampil (tidak berkedip); disegarkan sekali setelah layar diam. */
     private fun glassScrolling() { scheduleGlass(260) }
@@ -862,10 +863,13 @@ class MainActivity : Activity() {
                 if (t.start) { t.start = false; if (isCur()) syncStart() }
                 if (isCur()) updateUi()
             }
+            override fun onPageCommitVisible(v: WebView?, u: String?) {
+                if (isCur()) scheduleGlass(150)
+            }
             override fun onPageFinished(v: WebView?, u: String?) {
                 t.url = u ?: t.url; t.progress = 100; t.title = v?.title ?: t.title
                 if (u != null && u.startsWith("http")) store.addHistory(u, t.title)
-                if (isCur()) scheduleGlass(450)
+                if (isCur()) { scheduleGlass(300); h.postDelayed(glassRefresh2, 1000) }
                 v?.evaluateJavascript(
                     "(function(){var d=document.getElementById('__sf_sp');if(!d){d=document.createElement('div');" +
                         "d.id='__sf_sp';d.style.cssText='height:140px;width:1px;pointer-events:none';" +
@@ -954,7 +958,7 @@ class MainActivity : Activity() {
         setCollapsed(false)
         syncStart()
         updateUi()
-        scheduleGlass(350)
+        scheduleGlass(200)
     }
 
     private fun capture(t: Tab) {
