@@ -174,11 +174,72 @@ class GlassView(
     companion object {
         val all = mutableListOf<GlassView>()
         var blur = false   // blur latar belakang (berat) - default mati
+
+        // posisi tanpa memperhitungkan animasi (translasi/skala)
+        private fun origin(v: View, out: IntArray) {
+            var x = 0
+            var y = 0
+            var cur: View? = v
+            while (cur != null) {
+                x += cur.left; y += cur.top
+                val p = cur.parent
+                if (p is View) { x -= p.scrollX; y -= p.scrollY; cur = p } else cur = null
+            }
+            out[0] = x; out[1] = y
+        }
+
+        /** Satu snapshot per sumber, dipakai bersama semua kaca mode idle (hemat, tidak berat). */
+        fun refreshIdle() {
+            val list = all.filter { it.idle && it.width > 0 && it.height > 0 && it.isShown }
+            val tmp = IntArray(2)
+            val base = IntArray(2)
+            for ((src, views) in list.groupBy { it.source }) {
+                origin(src, base)
+                var ul = Int.MAX_VALUE
+                var ut = Int.MAX_VALUE
+                var ur = Int.MIN_VALUE
+                var ub = Int.MIN_VALUE
+                val pos = views.map { v ->
+                    origin(v, tmp)
+                    val l = tmp[0] - base[0]
+                    val t = tmp[1] - base[1]
+                    ul = minOf(ul, l); ut = minOf(ut, t)
+                    ur = maxOf(ur, l + v.width); ub = maxOf(ub, t + v.height)
+                    intArrayOf(l, t)
+                }
+                val uw = ur - ul
+                val uh = ub - ut
+                if (uw <= 0 || uh <= 0) continue
+                val s = 0.1f
+                val sw = max(2, (uw * s).toInt())
+                val sh = max(2, (uh * s).toInt())
+                val shared = Bitmap.createBitmap(sw, sh, Bitmap.Config.ARGB_8888)
+                val c = Canvas(shared)
+                c.drawColor(views[0].bgColor)
+                c.scale(s, s)
+                c.translate(-ul.toFloat(), -ut.toFloat())
+                try { src.draw(c) } catch (e: Throwable) { }
+                views.forEachIndexed { i, v ->
+                    val l = pos[i][0] - ul
+                    val t = pos[i][1] - ut
+                    val left = ((l * s).toInt()).coerceIn(0, sw - 1)
+                    val top = ((t * s).toInt()).coerceIn(0, sh - 1)
+                    val right = (((l + v.width) * s + 0.999f).toInt()).coerceIn(left + 1, sw)
+                    val bottom = (((t + v.height) * s + 0.999f).toInt()).coerceIn(top + 1, sh)
+                    v.applyShared(shared, left, top, right, bottom)
+                }
+                shared.recycle()
+            }
+        }
     }
 
     private val img = FlatImage(ctx).apply { scaleType = ImageView.ScaleType.FIT_XY }
     private val tint = FlatView(ctx)
     private var bmp: Bitmap? = null
+    private var bmp2: Bitmap? = null
+    private val img2 = FlatImage(ctx).apply { scaleType = ImageView.ScaleType.FIT_XY }
+    private var front2 = false
+    private var useSecond = false
     private val cv = Canvas()
     private val loc = IntArray(2)
     private val sloc = IntArray(2)
@@ -194,6 +255,7 @@ class GlassView(
     init {
         if (idle) addView(fallback, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(img, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        if (idle) addView(img2, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(tint, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         // isian semi-solid (dipakai saat tanpa blur, dan sebagai cadangan saat scroll di mode idle)
         val solid: Drawable = when (kind) {
@@ -217,12 +279,17 @@ class GlassView(
         } else {
             tint.background = solid
         }
-        if (idle) { fallback.background = solid; img.alpha = 0f }
+        if (idle) { fallback.background = solid; img.alpha = 0f; img2.alpha = 0f }
         img.visibility = if (live) View.VISIBLE else View.GONE
-        if (live && (kind == 1 || kind == 3)) img.colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.8f) })
+        if (live && (kind == 1 || kind == 3)) {
+            val cf = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.8f) })
+            img.colorFilter = cf
+            img2.colorFilter = cf
+        }
         if (live && Build.VERSION.SDK_INT >= 31) {
             val r = when (if (idle) 3 else kind) { 0 -> 22f; 1 -> 14f; 3 -> 20f; else -> 28f }
             img.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
+            img2.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
         }
         clipToOutline = true
         outlineProvider = object : ViewOutlineProvider() {
@@ -231,19 +298,6 @@ class GlassView(
             }
         }
         setWillNotDraw(false)
-    }
-
-    // posisi tanpa memperhitungkan animasi (translasi/skala)
-    private fun origin(v: View, out: IntArray) {
-        var x = 0
-        var y = 0
-        var cur: View? = v
-        while (cur != null) {
-            x += cur.left; y += cur.top
-            val p = cur.parent
-            if (p is View) { x -= p.scrollX; y -= p.scrollY; cur = p } else cur = null
-        }
-        out[0] = x; out[1] = y
     }
 
     init {
@@ -284,9 +338,40 @@ class GlassView(
         }
     }
 
-    fun setBlurShown(show: Boolean) {
-        img.animate().cancel()
-        img.animate().alpha(if (show) 1f else 0f).setDuration(if (show) 220L else 90L).start()
+    // lapisan belakang (yang sedang tidak tampil) dipakai untuk snapshot baru lalu di-crossfade
+    private fun layerBitmap(bw: Int, bh: Int): Bitmap {
+        useSecond = idle && !front2
+        var b = if (useSecond) bmp2 else bmp
+        val t = if (useSecond) img2 else img
+        if (b == null || b.width != bw || b.height != bh) {
+            b = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+            if (useSecond) bmp2 = b else bmp = b
+            t.setImageBitmap(b)
+        }
+        return b!!
+    }
+
+    private fun commit() {
+        val t = if (useSecond) img2 else img
+        t.invalidate()
+        if (idle) {
+            val f = if (useSecond) img else img2
+            t.animate().cancel(); f.animate().cancel()
+            t.animate().alpha(1f).setDuration(220).start()
+            f.animate().alpha(0f).setDuration(220).start()
+            front2 = useSecond
+        }
+    }
+
+    /** Dipanggil oleh refreshIdle(): memakai potongan dari snapshot bersama. */
+    fun applyShared(shared: Bitmap, l: Int, t: Int, r: Int, b: Int) {
+        val bw = max(2, (width * 0.1f).toInt())
+        val bh = max(2, (height * 0.1f).toInt())
+        val dst = layerBitmap(bw, bh)
+        cv.setBitmap(dst)
+        cv.drawColor(bgColor)
+        cv.drawBitmap(shared, Rect(l, t, r, b), Rect(0, 0, bw, bh), null)
+        commit()
     }
 
     fun refresh() {
@@ -294,12 +379,7 @@ class GlassView(
         val s = if (kind == 2) 0.07f else 0.1f
         val bw = max(2, (width * s).toInt())
         val bh = max(2, (height * s).toInt())
-        var b = bmp
-        if (b == null || b.width != bw || b.height != bh) {
-            b = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
-            bmp = b
-            img.setImageBitmap(b)
-        }
+        val b = layerBitmap(bw, bh)
         if (once || idle) { origin(this, loc); origin(source, sloc) }
         else { getLocationInWindow(loc); source.getLocationInWindow(sloc) }
         cv.setBitmap(b)
@@ -309,7 +389,7 @@ class GlassView(
         cv.translate((sloc[0] - loc[0]).toFloat(), (sloc[1] - loc[1]).toFloat())
         try { source.draw(cv) } catch (e: Throwable) { }
         cv.restore()
-        img.invalidate()
+        commit()
     }
 }
 

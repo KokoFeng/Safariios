@@ -493,30 +493,15 @@ class MainActivity : Activity() {
     }
 
     // ------------------------------------------------------------ blur kaca saat diam (mode ringan)
-    private var glassHidden = false
-    private val glassRefresh = Runnable { refreshIdleGlass() }
+    private val glassRefresh = Runnable { GlassView.refreshIdle() }
 
-    private fun glassScrolling() {
-        if (GlassView.blur) return
-        if (!glassHidden) {
-            glassHidden = true
-            GlassView.all.toList().forEach { if (it.idle) it.setBlurShown(false) }
-        }
-        h.removeCallbacks(glassRefresh)
-        h.postDelayed(glassRefresh, 220)
-    }
+    /** Selama scroll blur lama tetap tampil (tidak berkedip); disegarkan sekali setelah layar diam. */
+    private fun glassScrolling() { scheduleGlass(260) }
 
     private fun scheduleGlass(delay: Long = 220) {
         if (GlassView.blur) return
         h.removeCallbacks(glassRefresh)
         h.postDelayed(glassRefresh, delay)
-    }
-
-    private fun refreshIdleGlass() {
-        glassHidden = false
-        GlassView.all.toList().forEach {
-            if (it.idle) { it.refresh(); it.setBlurShown(true) }
-        }
     }
 
     // ------------------------------------------------------------ pengembang & proteksi
