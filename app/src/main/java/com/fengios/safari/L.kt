@@ -97,6 +97,7 @@ object L {
         "Today" to "Hari Ini",
         "Today and Yesterday" to "Hari Ini dan Kemarin",
         "Touch Sensitivity  %d%%" to "Sensitivitas Sentuhan  %d%%",
+        "Storage permission is needed to save files" to "Izin penyimpanan diperlukan untuk menyimpan file",
         "Yesterday" to "Kemarin"
     )
 

@@ -1,10 +1,12 @@
 package com.fengios.safari
 
 import android.animation.TimeInterpolator
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.DownloadManager
 import android.content.*
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.*
 import android.graphics.drawable.ColorDrawable
@@ -145,7 +147,7 @@ class MainActivity : Activity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
-        window.isNavigationBarContrastEnforced = false
+        if (Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
 
         root = FrameLayout(this)
         setContentView(root)
@@ -1003,7 +1005,7 @@ class MainActivity : Activity() {
             val sm = Bitmap.createScaledBitmap(wp, sw, maxOf(2, wp.height * sw / wp.width), true)
             val wiv = ImageView(this).apply {
                 setImageBitmap(sm); scaleType = ImageView.ScaleType.CENTER_CROP
-                if (Build.VERSION.SDK_INT >= 31) setRenderEffect(RenderEffect.createBlurEffect(14f, 14f, Shader.TileMode.CLAMP))
+                blurView(this, 14f)
             }
             ov.addView(wiv, MP, MP)
             ov.addView(View(this).apply { setBackgroundColor(0x59000000) }, MP, MP)
@@ -1632,7 +1634,32 @@ class MainActivity : Activity() {
         }
     }
 
+    private var pendingDl: Array<String?>? = null
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 79) {
+            val p = pendingDl
+            pendingDl = null
+            if (p != null) {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    download(p[0] ?: return, p[1], p[2], p[3])
+                } else {
+                    toast(L.t("Storage permission is needed to save files"))
+                }
+            }
+        }
+    }
+
     private fun download(url: String, ua: String?, cd: String?, mime: String?) {
+        // Android 8-9: menyimpan ke folder Download butuh izin penyimpanan
+        if (Build.VERSION.SDK_INT <= 28 &&
+            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingDl = arrayOf(url, ua, cd, mime)
+            requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), 79)
+            return
+        }
         try {
             val name = URLUtil.guessFileName(url, cd, mime)
             val req = DownloadManager.Request(Uri.parse(url))

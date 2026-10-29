@@ -286,10 +286,10 @@ class GlassView(
             img.colorFilter = cf
             img2.colorFilter = cf
         }
-        if (live && Build.VERSION.SDK_INT >= 31) {
+        if (live) {
             val r = when (if (idle) 3 else kind) { 0 -> 22f; 1 -> 14f; 3 -> 20f; else -> 28f }
-            img.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
-            img2.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
+            blurView(img, r)
+            blurView(img2, r)
         }
         clipToOutline = true
         outlineProvider = object : ViewOutlineProvider() {
@@ -353,6 +353,11 @@ class GlassView(
 
     private fun commit() {
         val t = if (useSecond) img2 else img
+        if (Build.VERSION.SDK_INT < 31 && live) {
+            // Android 8-11 tidak punya RenderEffect: haluskan bitmap kecil dengan blur CPU (murah)
+            val bb = if (useSecond) bmp2 else bmp
+            if (bb != null) { boxBlur(bb, 2); boxBlur(bb, 2) }
+        }
         t.invalidate()
         if (idle) {
             val f = if (useSecond) img else img2
@@ -476,4 +481,49 @@ fun siteTile(ctx: Context, store: Store, url: String, size: Int, radius: Int): V
         }, FrameLayout.LayoutParams(-1, -1))
     }
     return box
+}
+
+@androidx.annotation.RequiresApi(31)
+private object Fx {
+    fun blur(v: View, r: Float) {
+        v.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
+    }
+}
+
+/** Blur GPU (Android 12+). Di Android lebih lama tidak melakukan apa-apa; GlassView memakai blur CPU kecil. */
+fun blurView(v: View, r: Float) {
+    if (Build.VERSION.SDK_INT >= 31) Fx.blur(v, r)
+}
+
+private fun boxBlur(b: Bitmap, r: Int) {
+    val w = b.width
+    val h = b.height
+    if (w < 3 || h < 3) return
+    val px = IntArray(w * h)
+    b.getPixels(px, 0, w, 0, 0, w, h)
+    val tmp = IntArray(w * h)
+    val n = 2 * r + 1
+    for (y in 0 until h) for (x in 0 until w) {
+        var a = 0
+        var rr = 0
+        var g = 0
+        var bl = 0
+        for (k in -r..r) {
+            val c = px[y * w + (x + k).coerceIn(0, w - 1)]
+            a += c ushr 24; rr += (c shr 16) and 255; g += (c shr 8) and 255; bl += c and 255
+        }
+        tmp[y * w + x] = ((a / n) shl 24) or ((rr / n) shl 16) or ((g / n) shl 8) or (bl / n)
+    }
+    for (y in 0 until h) for (x in 0 until w) {
+        var a = 0
+        var rr = 0
+        var g = 0
+        var bl = 0
+        for (k in -r..r) {
+            val c = tmp[(y + k).coerceIn(0, h - 1) * w + x]
+            a += c ushr 24; rr += (c shr 16) and 255; g += (c shr 8) and 255; bl += c and 255
+        }
+        px[y * w + x] = ((a / n) shl 24) or ((rr / n) shl 16) or ((g / n) shl 8) or (bl / n)
+    }
+    b.setPixels(px, 0, w, 0, 0, w, h)
 }
