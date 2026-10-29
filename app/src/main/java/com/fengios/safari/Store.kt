@@ -144,6 +144,17 @@ class Store(private val ctx: Context) {
         } catch (e: Exception) { false }
     }
 
+    // ---- wallpaper: foto pilihan pengguna, atau gambar bawaan aplikasi
+    private var defBg: Bitmap? = null
+
+    fun wallpaper(): Bitmap {
+        loadBg()?.let { return it }
+        defBg?.let { return it }
+        val b = BitmapFactory.decodeResource(ctx.resources, R.drawable.default_wallpaper)
+        defBg = b
+        return b
+    }
+
     // ---- ikon situs
     private fun iconFile(h: String) = File(ctx.filesDir, "ic_" + h.replace(Regex("[^a-zA-Z0-9.-]"), "_") + ".png")
 

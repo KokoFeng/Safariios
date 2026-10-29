@@ -2,6 +2,7 @@ package com.fengios.safari
 
 import android.app.AlertDialog
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
@@ -28,14 +29,15 @@ class StartPage(
     private val onOpen: (String) -> Unit,
     private val onPickBg: () -> Unit,
     private val onResetBg: () -> Unit,
-    private val initialTab: Int = 0
+    private val initialTab: Int = 0,
+    private val onScrolled: () -> Unit = {}
 ) {
     private val MP = ViewGroup.LayoutParams.MATCH_PARENT
     private val WC = ViewGroup.LayoutParams.WRAP_CONTENT
     private val den = ctx.resources.displayMetrics.density
     private fun dp(v: Int) = (v * den).toInt()
 
-    private val bgBmp = store.loadBg()
+    private val bgBmp: Bitmap? = store.wallpaper()
     private val glass = style == 27
     private val photo = style == 27 || bgBmp != null
     private val fg = if (photo || dark) Color.WHITE else Color.BLACK
@@ -91,6 +93,7 @@ class StartPage(
             setPadding(dp(16), topInset + dp(76), dp(16), dp(180))
         }
         col = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        scroll.setOnScrollChangeListener { _, _, _, _, _ -> onScrolled() }
         scroll.addView(col, MP, WC)
         bgLayer.addView(scroll, MP, MP)
         root.addView(bgLayer, MP, MP)
@@ -105,7 +108,7 @@ class StartPage(
         }
         val barView: View
         if (glass) {
-            val g = GlassView(ctx, bgLayer, dp(24).toFloat(), 1, dark, 0xFF24503B.toInt())
+            val g = GlassView(ctx, bgLayer, dp(24).toFloat(), 1, dark, 0xFF24503B.toInt(), idleParam = true)
             g.addView(seg, FrameLayout.LayoutParams(MP, MP))
             barView = g
         } else {
@@ -219,6 +222,16 @@ class StartPage(
         btns.addView(popOption("Hapus", red) { onYes() }, LinearLayout.LayoutParams(0, dp(50), 1f))
         c.addView(btns)
         openLayer(c, dp(290), Gravity.CENTER, 0, true)
+    }
+
+    private fun openEditMenu() {
+        val c = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(4), 0, dp(4)) }
+        c.addView(popRow("photo", "Ubah Latar Belakang", popFg) { onPickBg() })
+        if (store.hasBg()) {
+            c.addView(popLine(), LinearLayout.LayoutParams(MP, 1).apply { marginStart = dp(58) })
+            c.addView(popRow("trash", "Reset ke Bawaan", red) { onResetBg() })
+        }
+        openLayer(c, dp(270), Gravity.CENTER, 0, true)
     }
 
     private fun openHistoryMenu() {
@@ -369,8 +382,7 @@ class StartPage(
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
             setPadding(0, dp(20), 0, 0)
         }
-        br.addView(pill("Ubah Latar Belakang") { onPickBg() })
-        if (store.hasBg()) br.addView(pill("Reset") { onResetBg() }, LinearLayout.LayoutParams(WC, WC).apply { marginStart = dp(10) })
+        br.addView(pill("Edit") { openEditMenu() })
         col.addView(br, LinearLayout.LayoutParams(MP, WC))
     }
 

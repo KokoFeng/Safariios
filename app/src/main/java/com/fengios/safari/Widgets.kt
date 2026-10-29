@@ -3,6 +3,7 @@ package com.fengios.safari
 import android.content.Context
 import android.graphics.*
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.widget.ScrollView
 import android.os.Build
@@ -166,7 +167,8 @@ class IconView(ctx: Context, var kind: String, var tint: Int = Color.BLACK, var 
 class GlassView(
     ctx: Context, private val source: View, var corner: Float,
     private val kind: Int, dark: Boolean, var bgColor: Int,
-    private val once: Boolean = false
+    private val once: Boolean = false,
+    private val idleParam: Boolean = false
 ) : FrameLayout(ctx) {
 
     companion object {
@@ -184,14 +186,28 @@ class GlassView(
     private val strokeP = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.4f * density }
     private val sheenP = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
-    private val live: Boolean get() = blur || once
+    /** Mode idle: blur diambil sekali saat layar diam (ringan), disembunyikan saat scroll. */
+    val idle: Boolean get() = idleParam && !blur && !once
+    private val live: Boolean get() = blur || once || idle
+    private val fallback = FlatView(ctx)
 
     init {
+        if (idle) addView(fallback, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(img, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(tint, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        // isian semi-solid (dipakai saat tanpa blur, dan sebagai cadangan saat scroll di mode idle)
+        val solid: Drawable = when (kind) {
+            1 -> GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                if (dark) intArrayOf(0xE62F2F31.toInt(), 0xD91C1C1E.toInt())
+                else intArrayOf(0xEBFFFFFF.toInt(), 0xD9F0F0F4.toInt())
+            )
+            0 -> ColorDrawable(if (dark) 0xF21C1C1E.toInt() else 0xF2F6F6F8.toInt())
+            else -> ColorDrawable(if (dark) 0xF51C1C1E.toInt() else 0xF5F2F2F7.toInt())
+        }
         if (live) {
             tint.setBackgroundColor(
-                when (kind) {
+                when (if (idle) 3 else kind) {
                     0 -> if (dark) 0xCC1C1C1E.toInt() else 0xCCF6F6F8.toInt()
                     1 -> if (dark) 0x33383838 else 0x40FFFFFF
                     3 -> if (dark) 0x8C2A2A2C.toInt() else 0x99FFFFFF.toInt()
@@ -199,21 +215,13 @@ class GlassView(
                 }
             )
         } else {
-            // tanpa snapshot latar: hanya isian semi-solid, jauh lebih ringan
-            tint.background = when (kind) {
-                1 -> GradientDrawable(
-                    GradientDrawable.Orientation.TOP_BOTTOM,
-                    if (dark) intArrayOf(0xE62F2F31.toInt(), 0xD91C1C1E.toInt())
-                    else intArrayOf(0xEBFFFFFF.toInt(), 0xD9F0F0F4.toInt())
-                )
-                0 -> ColorDrawable(if (dark) 0xF21C1C1E.toInt() else 0xF2F6F6F8.toInt())
-                else -> ColorDrawable(if (dark) 0xF51C1C1E.toInt() else 0xF5F2F2F7.toInt())
-            }
+            tint.background = solid
         }
+        if (idle) { fallback.background = solid; img.alpha = 0f }
         img.visibility = if (live) View.VISIBLE else View.GONE
         if (live && (kind == 1 || kind == 3)) img.colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.8f) })
         if (live && Build.VERSION.SDK_INT >= 31) {
-            val r = when (kind) { 0 -> 22f; 1 -> 14f; 3 -> 20f; else -> 28f }
+            val r = when (if (idle) 3 else kind) { 0 -> 22f; 1 -> 14f; 3 -> 20f; else -> 28f }
             img.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
         }
         clipToOutline = true
@@ -276,6 +284,11 @@ class GlassView(
         }
     }
 
+    fun setBlurShown(show: Boolean) {
+        img.animate().cancel()
+        img.animate().alpha(if (show) 1f else 0f).setDuration(if (show) 220L else 90L).start()
+    }
+
     fun refresh() {
         if (!live || width <= 0 || height <= 0 || !isShown) return
         val s = if (kind == 2) 0.07f else 0.1f
@@ -287,7 +300,7 @@ class GlassView(
             bmp = b
             img.setImageBitmap(b)
         }
-        if (once) { origin(this, loc); origin(source, sloc) }
+        if (once || idle) { origin(this, loc); origin(source, sloc) }
         else { getLocationInWindow(loc); source.getLocationInWindow(sloc) }
         cv.setBitmap(b)
         cv.drawColor(bgColor)

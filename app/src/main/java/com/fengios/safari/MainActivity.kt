@@ -246,6 +246,7 @@ class MainActivity : Activity() {
         syncStart()
         updateUi()
         pollDownloads()
+        scheduleGlass(350)
     }
 
     private fun applyInsets() {
@@ -355,7 +356,7 @@ class MainActivity : Activity() {
     /** iOS 18: satu bar blur selebar layar, pill alamat + toolbar. */
     private fun build18(): Bars {
         val b = Bars()
-        val glass = GlassView(this, webHolder, 0f, 0, dark, bg)
+        val glass = GlassView(this, webHolder, 0f, 0, dark, bg, idleParam = true)
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val pill = FrameLayout(this)
         pill.background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(fillCol) }
@@ -373,7 +374,7 @@ class MainActivity : Activity() {
     }
 
     private fun glassBox(content: View, corner: Float, src: View = webHolder): FrameLayout {
-        val c: FrameLayout = if (style == 27) GlassView(this, src, corner, 1, dark, bg)
+        val c: FrameLayout = if (style == 27) GlassView(this, src, corner, 1, dark, bg, idleParam = true)
         else FrameLayout(this).apply {
             background = GradientDrawable().apply {
                 cornerRadius = corner; setColor(if (dark) 0xFF2C2C2E.toInt() else Color.WHITE)
@@ -404,7 +405,7 @@ class MainActivity : Activity() {
             else if (tab.web.canGoBack()) tab.web.goBack()
             else if (!tab.start && tab.fromStart) { tab.start = true; syncStart(); updateUi() }
         }
-        val addr = GlassView(this, webHolder, dp(barH / 2).toFloat(), 1, dark, bg)
+        val addr = GlassView(this, webHolder, dp(barH / 2).toFloat(), 1, dark, bg, idleParam = true)
         val pill = FrameLayout(this)
         fillPill(b, pill)
         addr.addView(pill, FrameLayout.LayoutParams(MP, MP))
@@ -445,6 +446,7 @@ class MainActivity : Activity() {
         }
         b.aa.animate().alpha(if (c) 0f else 1f).setDuration(200).start()
         b.dl.animate().alpha(if (c) 0f else 1f).setDuration(200).start()
+        scheduleGlass(d + 120)
         b.reload.animate().alpha(if (c) 0f else 1f).setDuration(200).start()
     }
 
@@ -488,6 +490,33 @@ class MainActivity : Activity() {
         b.progress.layoutParams = (b.progress.layoutParams as FrameLayout.LayoutParams).apply { width = w }
         if (t.progress in 1..99) b.progress.animate().cancel().also { b.progress.alpha = 1f }
         else b.progress.animate().alpha(0f).setDuration(350).start()
+    }
+
+    // ------------------------------------------------------------ blur kaca saat diam (mode ringan)
+    private var glassHidden = false
+    private val glassRefresh = Runnable { refreshIdleGlass() }
+
+    private fun glassScrolling() {
+        if (GlassView.blur) return
+        if (!glassHidden) {
+            glassHidden = true
+            GlassView.all.toList().forEach { if (it.idle) it.setBlurShown(false) }
+        }
+        h.removeCallbacks(glassRefresh)
+        h.postDelayed(glassRefresh, 220)
+    }
+
+    private fun scheduleGlass(delay: Long = 220) {
+        if (GlassView.blur) return
+        h.removeCallbacks(glassRefresh)
+        h.postDelayed(glassRefresh, delay)
+    }
+
+    private fun refreshIdleGlass() {
+        glassHidden = false
+        GlassView.all.toList().forEach {
+            if (it.idle) { it.refresh(); it.setBlurShown(true) }
+        }
     }
 
     // ------------------------------------------------------------ pengembang & proteksi
@@ -769,13 +798,13 @@ class MainActivity : Activity() {
         startTop = topInset
         val on = tabs.isNotEmpty() && tab.start
         if (on) {
-            val v = StartPage(this, style, dark, store, topInset, { go(it) }, { pickBackground() }, { store.clearBg(); syncStart() }, startIdx).build()
+            val v = StartPage(this, style, dark, store, topInset, { go(it) }, { pickBackground() }, { store.clearBg(); syncStart() }, startIdx, { glassScrolling() }).build()
             webHolder.addView(v, FrameLayout.LayoutParams(MP, MP))
             startView = v
             startIdx = 0
         }
         WindowCompat.getInsetsController(window, root).isAppearanceLightStatusBars =
-            !(dark || (on && (style == 27 || store.hasBg())))
+            !(dark || on)
         applyInsets()
     }
 
@@ -788,7 +817,7 @@ class MainActivity : Activity() {
     private fun syncStatusIcons() {
         val on = tabs.isNotEmpty() && tab.start
         WindowCompat.getInsetsController(window, root).isAppearanceLightStatusBars =
-            !(dark || (on && (style == 27 || store.hasBg())))
+            !(dark || on)
     }
 
     private fun openStartIn(idx: Int) {
@@ -851,6 +880,7 @@ class MainActivity : Activity() {
             override fun onPageFinished(v: WebView?, u: String?) {
                 t.url = u ?: t.url; t.progress = 100; t.title = v?.title ?: t.title
                 if (u != null && u.startsWith("http")) store.addHistory(u, t.title)
+                if (isCur()) scheduleGlass(450)
                 v?.evaluateJavascript(
                     "(function(){var d=document.getElementById('__sf_sp');if(!d){d=document.createElement('div');" +
                         "d.id='__sf_sp';d.style.cssText='height:140px;width:1px;pointer-events:none';" +
@@ -895,6 +925,7 @@ class MainActivity : Activity() {
         w.setOnScrollChangeListener { _, _, y, _, oy ->
             if (isCur() && !editing) {
                 val d = y - oy
+                glassScrolling()
                 if (y <= 10) {
                     scrollAcc = 0; setCollapsed(false)
                 } else {
@@ -938,6 +969,7 @@ class MainActivity : Activity() {
         setCollapsed(false)
         syncStart()
         updateUi()
+        scheduleGlass(350)
     }
 
     private fun capture(t: Tab) {
@@ -974,8 +1006,8 @@ class MainActivity : Activity() {
         val ovBg = if (dark) 0xFF1C1C1E.toInt() else 0xFFE5E5EA.toInt()
         val ov = FrameLayout(this)
         ov.setBackgroundColor(ovBg)
-        val wp = store.loadBg()
-        ovLight = wp != null || style == 27
+        val wp: Bitmap? = store.wallpaper()
+        ovLight = true
         if (wp != null) {
             val sw = 360
             val sm = Bitmap.createScaledBitmap(wp, sw, maxOf(2, wp.height * sw / wp.width), true)
@@ -1003,6 +1035,7 @@ class MainActivity : Activity() {
         val gh = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         col.addView(gh, LinearLayout.LayoutParams(MP, WC))
         scroll.addView(col, MP, WC)
+        scroll.setOnScrollChangeListener { _, _, _, _, _ -> glassScrolling() }
         ov.addView(scroll, MP, MP)
         gridCol = gh
         fillGrid(gh)
@@ -1047,6 +1080,7 @@ class MainActivity : Activity() {
 
         root.addView(ov, MP, MP)
         overlay = ov
+        scheduleGlass(300)
         animUntil = SystemClock.uptimeMillis() + 700
         ov.alpha = 0f; ov.scaleX = 1.06f; ov.scaleY = 1.06f
         ov.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(280).setInterpolator(DecelerateInterpolator(2f)).start()
@@ -1556,7 +1590,7 @@ class MainActivity : Activity() {
     }
 
     private fun toast(msg: String) {
-        val g = GlassView(this, webHolder, dp(22).toFloat(), if (style == 27) 1 else 2, dark, bg)
+        val g = GlassView(this, webHolder, dp(22).toFloat(), 3, dark, bg, true)
         g.addView(TextView(this).apply {
             text = msg; textSize = 14f; setTextColor(fg); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
             setPadding(dp(18), dp(11), dp(18), dp(11))
